@@ -1,0 +1,10 @@
+venv/
+.venv/
+.env
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.pytest_cache/
+tests/.runtime/
+data/vectordb/
