@@ -5,6 +5,7 @@ import logging
 from app.rag.loader import load_pdf_documents
 from app.rag.splitter import split_documents
 from app.rag.vectordb import create_vector_store
+from app.utils.logger import configure_application_logging
 
 
 LOGGER = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ LOGGER = logging.getLogger(__name__)
 
 def main() -> int:
     """Run the complete PDF loading, chunking, and indexing pipeline."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    configure_application_logging()
 
     try:
         LOGGER.info("Loading PDF documents...")

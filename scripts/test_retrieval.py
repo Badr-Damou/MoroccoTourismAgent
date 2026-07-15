@@ -1,8 +1,10 @@
 """Run a sample query against the persistent tourism vector database."""
 
 import logging
+import sys
 
 from app.rag.retriever import retrieve_documents
+from app.utils.logger import configure_application_logging
 
 
 LOGGER = logging.getLogger(__name__)
@@ -12,7 +14,9 @@ PREVIEW_LENGTH = 500
 
 def main() -> int:
     """Retrieve and print relevant chunks for the sample question."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    configure_application_logging()
 
     try:
         LOGGER.info("Query: %s", SAMPLE_QUERY)

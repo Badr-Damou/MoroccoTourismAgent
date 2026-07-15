@@ -1,16 +1,16 @@
-"""Create the OpenAI embedding model used by the RAG pipeline."""
+"""Create the Gemini embedding model used by the RAG pipeline."""
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-from app.utils.config import get_openai_api_key
-
-
-EMBEDDING_MODEL = "text-embedding-3-small"
+from app.utils.config import get_google_api_key
 
 
-def get_embedding_model() -> OpenAIEmbeddings:
-    """Return a configured, reusable OpenAI embeddings client."""
-    return OpenAIEmbeddings(
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+
+
+def get_embedding_model() -> GoogleGenerativeAIEmbeddings:
+    """Return a configured Gemini embeddings client for the RAG pipeline."""
+    return GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
-        api_key=get_openai_api_key(),
+        api_key=get_google_api_key(),
     )

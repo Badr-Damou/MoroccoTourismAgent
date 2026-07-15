@@ -1,24 +1,23 @@
 # Morocco Tourism Agent
 
-A production-oriented foundation for an agentic retrieval-augmented generation
-(RAG) assistant focused on tourism in Morocco. The future assistant will use
-LangGraph to coordinate its workflow, LangChain and OpenAI for language-model
-integration, and ChromaDB for semantic retrieval.
+An agentic retrieval-augmented generation (RAG) tourism assistant for Morocco.
+The project uses LangChain, LangGraph, Google Gemini, and a persistent ChromaDB
+vector store.
 
-This repository currently contains project scaffolding only. Agent and RAG
-business logic will be implemented in later stages.
+The current retrieval flow is:
 
-## Planned features
+```text
+PDF loading -> chunk splitting -> Gemini embeddings -> ChromaDB -> retrieval
+```
 
-- Retrieval over curated Moroccan tourism documents
-- Agentic workflow orchestration with LangGraph
-- Itinerary generation and destination comparison tools
-- Budget-aware travel recommendations
-- Conversation memory
-- Automated response evaluation
-- Streamlit user interface
+The first agent workflow is assembled manually with LangGraph `StateGraph`:
 
-## Folder structure
+```text
+Question -> intent classification -> retrieval -> answer generation
+         -> validation -> final grounded response
+```
+
+## Project structure
 
 ```text
 MoroccoTourismAgent/
@@ -26,91 +25,137 @@ MoroccoTourismAgent/
 |   |-- graph/       # LangGraph state, nodes, edges, and workflow
 |   |-- rag/         # Document ingestion and retrieval pipeline
 |   |-- tools/       # Tools exposed to the agent
-|   |-- llm/         # Language-model configuration
+|   |-- llm/         # Gemini chat-model configuration
 |   |-- memory/      # Conversation memory
 |   |-- evaluation/  # Evaluation questions and utilities
 |   `-- utils/       # Shared configuration and logging helpers
 |-- data/
-|   |-- documents/   # Source tourism documents
-|   `-- vectordb/    # Local ChromaDB data (not committed)
+|   |-- documents/   # Source tourism PDFs
+|   `-- vectordb/    # Local persistent ChromaDB data
+|-- scripts/         # Indexing and retrieval smoke-test commands
 |-- tests/           # Automated tests
-|-- main.py          # Application entry point
 |-- requirements.txt
 |-- pyproject.toml
 `-- .env.example
 ```
 
-## Installation
+## Setup
 
-### Prerequisites
+### 1. Create and activate a virtual environment
 
-- Python 3.11 or newer
-- An OpenAI API key for future model integration
+Python 3.11 or newer is required.
 
-### Create a virtual environment
-
-On macOS or Linux:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 py -3.11 -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-### Install dependencies
+macOS or Linux:
 
 ```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 2. Install dependencies
+
+Install the complete project environment:
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### Configure environment variables
-
-Copy `.env.example` to `.env`, then add your own API credentials:
+The Gemini LangChain integration can also be installed or upgraded directly:
 
 ```powershell
-Copy-Item .env.example .env
+pip install -U langchain-google-genai
 ```
 
-On macOS or Linux, use `cp .env.example .env` instead. Never commit the
-resulting `.env` file.
+### 3. Create and configure a Gemini API key
 
-### Launch the project
+1. Sign in to [Google AI Studio](https://aistudio.google.com/apikey).
+2. Select **Create API key** and copy the generated key.
+3. Copy the environment template in the project root:
 
-Run the placeholder command-line entry point:
+   ```powershell
+   Copy-Item .env.example .env
+   ```
 
-```bash
-python main.py
+4. Set the key in `.env` without quotes or extra spaces:
+
+   ```dotenv
+   GOOGLE_API_KEY=your_api_key_here
+   GEMINI_CHAT_MODEL=gemini-3.5-flash
+   ```
+
+Never commit `.env` or paste its contents into logs. The application explicitly
+loads this root file with `python-dotenv`.
+
+Verify that Python can detect the variable without printing its value:
+
+```powershell
+python -c "from dotenv import load_dotenv; load_dotenv(); import os; print(bool(os.getenv('GOOGLE_API_KEY')))"
 ```
 
-The Streamlit launch command will be documented when the UI is implemented.
+The command should print `True`. A missing key produces a clear configuration
+error when a Gemini model is created.
 
-## Index and test tourism documents
+## Index and retrieve tourism documents
 
-Place one or more PDF files in `data/documents/` and configure
-`OPENAI_API_KEY` in `.env`. Then create the persistent vector index:
+Place PDF files in `data/documents/` before indexing.
 
-```bash
+### Remove an index created with the previous embedding provider
+
+Embedding providers produce incompatible vector representations. Before
+re-indexing after the switch from OpenAI to Gemini, remove the old incomplete
+Chroma database manually and recreate its directory:
+
+```powershell
+Remove-Item -Recurse -Force data\vectordb
+New-Item -ItemType Directory data\vectordb
+```
+
+The Python application never deletes this directory automatically.
+
+### Build the Gemini-backed index
+
+```powershell
 python -m scripts.index_documents
 ```
 
-Run the sample Marrakech retrieval query against the completed index:
+This loads the PDFs, splits their pages into chunks, generates embeddings with
+`models/gemini-embedding-001`, and stores them in the existing
+`morocco_tourism` Chroma collection.
 
-```bash
+### Test semantic retrieval
+
+```powershell
 python -m scripts.test_retrieval
 ```
 
-## Future documentation
+The retrieval smoke test reopens the persistent collection and prints relevant
+document previews for a sample Marrakech query.
 
-- Architecture and graph design
-- Data ingestion guide
-- Evaluation methodology
-- Development and testing workflow
-- Deployment guide
-- Contribution guidelines
+### Test the LangGraph workflow
+
+```powershell
+python -m scripts.test_graph
+```
+
+This runs factual and itinerary questions through classification, retrieval,
+grounded Gemini generation, validation, and at most one revision.
+
+## Development checks
+
+Compile the application and scripts without making an API request:
+
+```powershell
+python -m compileall app scripts
+```
+
+The reusable Gemini chat model is configured in `app/llm/model.py` with
+temperature `0.2`. Set `GEMINI_CHAT_MODEL` in `.env` to choose the model; it
+defaults to the stable `gemini-3.5-flash` model.

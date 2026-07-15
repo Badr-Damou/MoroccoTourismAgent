@@ -7,13 +7,18 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
 DATA_DIR = PROJECT_ROOT / "data"
 DOCUMENTS_DIR = DATA_DIR / "documents"
 VECTOR_DB_DIR = DATA_DIR / "vectordb"
 CHROMA_COLLECTION_NAME = "morocco_tourism"
 
-load_dotenv(PROJECT_ROOT / ".env")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+load_dotenv(dotenv_path=ENV_FILE)
+GOOGLE_API_KEY = (os.getenv("GOOGLE_API_KEY") or "").strip()
+GEMINI_CHAT_MODEL = (
+    (os.getenv("GEMINI_CHAT_MODEL") or "").strip()
+    or "gemini-3.5-flash"
+)
 
 
 class ConfigurationError(RuntimeError):
@@ -27,12 +32,12 @@ def ensure_data_directories() -> None:
 
 
 def get_google_api_key() -> str:
-    """Return the configured GOOGLE API key or raise a clear error."""
-    api_key = os.getenv("GOOGLE_API_KEY")
+    """Return the configured Gemini API key or raise a clear error."""
+    api_key = GOOGLE_API_KEY
     if not api_key:
         raise ConfigurationError(
             "GOOGLE_API_KEY is not configured. Copy .env.example to .env "
-            "and add your GOOGLE API key."
+            "and add your Google Gemini API key."
         )
     return api_key
 

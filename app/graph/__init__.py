@@ -1,3 +1,6 @@
-"""Define the agent's LangGraph workflow package."""
+"""Expose the tourism agent's manually assembled LangGraph workflow."""
 
-# TODO: Export the compiled tourism-agent workflow.
+from app.graph.workflow import build_graph
+
+
+__all__ = ["build_graph"]

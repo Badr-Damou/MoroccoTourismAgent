@@ -46,7 +46,9 @@ def create_vector_store(chunks: Sequence[Document]) -> Chroma:
         vector_store = _new_vector_store()
         vector_store.add_documents(documents=documents, ids=chunk_ids)
     except Exception as exc:
-        raise VectorStoreError("Failed to create the Chroma vector store.") from exc
+        raise VectorStoreError(
+            f"Failed to create the Chroma vector store: {exc}"
+        ) from exc
 
     return vector_store
 
@@ -63,7 +65,9 @@ def load_vector_store() -> Chroma:
         vector_store = _new_vector_store()
         stored_documents = vector_store.get(limit=1, include=[])
     except Exception as exc:
-        raise VectorStoreError("Failed to load the Chroma vector store.") from exc
+        raise VectorStoreError(
+            f"Failed to load the Chroma vector store: {exc}"
+        ) from exc
 
     if not stored_documents.get("ids"):
         raise VectorStoreError(
