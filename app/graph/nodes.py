@@ -3,7 +3,12 @@
 import re
 from collections.abc import Sequence
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 
 from app.graph.state import TourismAgentState
 from app.llm.model import get_chat_model
@@ -12,22 +17,104 @@ from app.tools.retrieval_tool import (
     NO_DOCUMENTS_MESSAGE,
     format_tourism_documents,
 )
+from app.utils.config import ENABLE_ANSWER_VALIDATION
 
 
-VALID_INTENTS = {
-    "factual",
-    "itinerary",
-    "comparison",
-    "budget",
-    "transport",
-    "general",
-}
 VALIDATION_RESULTS = {
     "valid",
     "needs_revision",
     "insufficient_information",
 }
 TEMPORARY_GEMINI_STATUS_CODES = {500, 502, 503, 504}
+GEMINI_QUOTA_STATUS_CODE = 429
+INTENT_RULES = (
+    (
+        "itinerary",
+        (
+            "plan",
+            "itinerary",
+            "day trip",
+            "days in",
+            "trip plan",
+        ),
+    ),
+    (
+        "comparison",
+        (
+            "compare",
+            "comparison",
+            "versus",
+            "vs",
+            "difference",
+            "better than",
+        ),
+    ),
+    (
+        "budget",
+        (
+            "budget",
+            "cost",
+            "price",
+            "estimate",
+            "afford",
+            "expensive",
+            "cheap",
+            "how much",
+        ),
+    ),
+    (
+        "transport",
+        (
+            "transport",
+            "transportation",
+            "travel from",
+            "get from",
+            "train",
+            "bus",
+            "taxi",
+            "flight",
+            "transfer",
+        ),
+    ),
+)
+RECOMMENDATION_KEYWORDS = (
+    "which city",
+    "which destination",
+    "where should i go",
+    "where should i visit",
+    "recommend a city",
+    "recommend a destination",
+    "destination recommendation",
+    "best city for me",
+)
+FACTUAL_KEYWORDS = (
+    "attraction",
+    "attractions",
+    "landmark",
+    "landmarks",
+    "fact",
+    "facts",
+    "history",
+    "famous for",
+    "what to see",
+    "things to do",
+    "best time",
+    "where is",
+    "tell me about",
+)
+PREFERENCE_PATTERNS = {
+    "cultural": r"\b(?:cultural|culture|historic|historical)\b",
+    "beach": r"\b(?:beach|beaches|coastal|seaside)\b",
+    "desert": r"\b(?:desert|sahara)\b",
+    "hiking": r"\b(?:hiking|hike|trekking|trek)\b",
+    "quiet": r"\b(?:quiet|peaceful|calm|relaxing)\b",
+    "luxury": r"\b(?:luxury|luxurious|premium|high-end)\b",
+    "moderate budget": r"\b(?:moderate|mid-range|midrange)\s+budget\b",
+    "budget": r"\b(?:budget|budget-friendly|affordable|low-cost)\b",
+    "family": r"\b(?:family|family-friendly|children|kids)\b",
+    "couple": r"\b(?:couple|romantic|honeymoon)\b",
+    "solo": r"\b(?:solo|alone|independent traveler)\b",
+}
 
 
 def _require_question(state: TourismAgentState) -> str:
@@ -54,6 +141,106 @@ def _message_text(message: BaseMessage) -> str:
     return str(content).strip()
 
 
+def _contains_keyword(text: str, keyword: str) -> bool:
+    """Return whether normalized text contains a complete keyword phrase."""
+    return bool(re.search(rf"\b{re.escape(keyword)}\b", text))
+
+
+def classify_tourism_intent(question: str) -> str:
+    """Classify a tourism question deterministically using ordered rules."""
+    normalized_question = re.sub(
+        r"\s+",
+        " ",
+        re.sub(r"[^a-z0-9\s]", " ", question.lower()),
+    ).strip()
+
+    for intent, keywords in INTENT_RULES:
+        if any(
+            _contains_keyword(normalized_question, keyword)
+            for keyword in keywords
+        ):
+            return intent
+
+    if any(
+        _contains_keyword(normalized_question, keyword)
+        for keyword in RECOMMENDATION_KEYWORDS
+    ):
+        return "general"
+    if any(
+        _contains_keyword(normalized_question, keyword)
+        for keyword in FACTUAL_KEYWORDS
+    ):
+        return "factual"
+    return "general"
+
+
+def extract_user_preferences(
+    question: str,
+    existing_preferences: Sequence[str] | None = None,
+) -> list[str]:
+    """Merge simple stated travel preferences with prior thread values."""
+    normalized_question = question.lower().strip()
+    preferences = list(dict.fromkeys(existing_preferences or []))
+    detected_preferences: list[str] = []
+    moderate_budget_mentioned = bool(
+        re.search(
+            PREFERENCE_PATTERNS["moderate budget"],
+            normalized_question,
+        )
+    )
+
+    for preference, pattern in PREFERENCE_PATTERNS.items():
+        if preference == "budget" and moderate_budget_mentioned:
+            continue
+        if not re.search(pattern, normalized_question):
+            continue
+
+        negative_pattern = (
+            r"\b(?:do not|don't|no longer|not)\s+"
+            r"(?:(?:prefer|like|want|enjoy)\s+)?"
+            r"(?:(?:a|an)\s+)?"
+            f"(?:{pattern})"
+            r"|\bavoid(?:ing)?\s+"
+            f"(?:{pattern})"
+        )
+        if re.search(negative_pattern, normalized_question):
+            preferences = [
+                value for value in preferences if value != preference
+            ]
+            continue
+
+        detected_preferences.append(preference)
+
+    for preference in detected_preferences:
+        if preference not in preferences:
+            preferences.append(preference)
+
+    return preferences
+
+
+def _format_conversation_history(
+    messages: Sequence[BaseMessage],
+    current_question: str,
+) -> str:
+    """Format accepted prior turns while excluding the current question."""
+    previous_messages = list(messages)
+    if (
+        previous_messages
+        and isinstance(previous_messages[-1], HumanMessage)
+        and _message_text(previous_messages[-1]) == current_question
+    ):
+        previous_messages.pop()
+
+    if not previous_messages:
+        return "No previous conversation."
+
+    formatted_messages: list[str] = []
+    for message in previous_messages:
+        role = "User" if isinstance(message, HumanMessage) else "Assistant"
+        formatted_messages.append(f"{role}: {_message_text(message)}")
+    return "\n".join(formatted_messages)
+
+
 def _invoke_gemini(
     messages: list[BaseMessage],
     operation: str,
@@ -65,6 +252,12 @@ def _invoke_gemini(
             automatic_function_calling={"disable": True},
         )
     except Exception as exc:
+        if _is_gemini_quota_error(exc):
+            raise RuntimeError(
+                "Gemini quota was exceeded while performing "
+                f"{operation}. Wait for the quota window to reset or use "
+                "another configured model."
+            ) from exc
         if _is_temporary_gemini_error(exc):
             raise RuntimeError(
                 "Gemini is temporarily unavailable while performing "
@@ -111,6 +304,30 @@ def _is_temporary_gemini_error(exc: BaseException) -> bool:
     return False
 
 
+def _is_gemini_quota_error(exc: BaseException) -> bool:
+    """Return whether an exception chain represents a Gemini quota error."""
+    current: BaseException | None = exc
+    visited: set[int] = set()
+
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        status_candidates = [
+            getattr(current, "code", None),
+            getattr(current, "status_code", None),
+            getattr(getattr(current, "response", None), "status_code", None),
+        ]
+        error_text = str(current).upper()
+        if (
+            GEMINI_QUOTA_STATUS_CODE in status_candidates
+            or "RESOURCE_EXHAUSTED" in error_text
+            or re.search(r"\bHTTP(?:/[0-9.]+)?\s+429\b", error_text)
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+
+    return False
+
+
 def _normalize_choice(
     output: str,
     allowed_values: set[str],
@@ -122,27 +339,27 @@ def _normalize_choice(
 
 
 def classify_intent_node(state: TourismAgentState) -> dict:
-    """Classify the question into one supported tourism intent."""
+    """Classify intent without consuming a Gemini API request."""
     question = _require_question(state)
-    response = _invoke_gemini(
-        [
-            SystemMessage(
-                content=(
-                    "Classify the tourism question into exactly one label: "
-                    "factual, itinerary, comparison, budget, transport, or "
-                    "general. Return only the label and no explanation."
-                )
-            ),
-            HumanMessage(content=question),
-        ],
-        operation="intent classification",
+    intent = classify_tourism_intent(question)
+    user_preferences = extract_user_preferences(
+        question,
+        state.get("user_preferences", []),
     )
-    intent = _normalize_choice(
-        _message_text(response),
-        VALID_INTENTS,
-        fallback="general",
-    )
-    return {"intent": intent}
+    updates: dict[str, object] = {
+        "intent": intent,
+        "user_preferences": user_preferences,
+        "validation_result": "",
+        "revision_count": 0,
+    }
+    messages = state.get("messages", [])
+    if not (
+        messages
+        and isinstance(messages[-1], HumanMessage)
+        and _message_text(messages[-1]) == question
+    ):
+        updates["messages"] = [HumanMessage(content=question)]
+    return updates
 
 
 def retrieve_node(state: TourismAgentState) -> dict:
@@ -167,6 +384,11 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     documents = state.get("retrieved_documents", [])
     context = state.get("context", "").strip()
     intent = state.get("intent", "general")
+    user_preferences = state.get("user_preferences", [])
+    conversation_history = _format_conversation_history(
+        state.get("messages", []),
+        question,
+    )
     current_revision_count = state.get("revision_count", 0)
     is_revision = state.get("validation_result") == "needs_revision"
     revision_count = current_revision_count + 1 if is_revision else 0
@@ -209,6 +431,8 @@ def generate_answer_node(state: TourismAgentState) -> dict:
                     "facts. If the context does not contain the answer, say "
                     "that the information is unavailable. Cite sources using "
                     "the filename and page shown in the context. "
+                    "Use stored preferences when relevant, but never let them "
+                    "override or invent facts beyond the retrieved context. "
                     f"{structure_rule}"
                 )
             ),
@@ -216,6 +440,10 @@ def generate_answer_node(state: TourismAgentState) -> dict:
                 content=(
                     f"Intent: {intent}\n"
                     f"Question: {question}\n\n"
+                    "Previous conversation:\n"
+                    f"{conversation_history}\n\n"
+                    "Stored user preferences:\n"
+                    f"{', '.join(user_preferences) or 'None'}\n\n"
                     f"{revision_instruction}"
                     f"Retrieved context:\n{context}"
                 )
@@ -227,11 +455,8 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     if not answer:
         raise RuntimeError("Gemini answer generation returned an empty response.")
 
-    messages = list(state.get("messages", []))
-    messages.append(response)
     return {
         "final_answer": answer,
-        "messages": messages,
         "revision_count": revision_count,
     }
 
@@ -244,8 +469,19 @@ def validate_answer_node(state: TourismAgentState) -> dict:
     answer = state.get("final_answer", "").strip()
     intent = state.get("intent", "general")
 
+    if not ENABLE_ANSWER_VALIDATION:
+        result: dict[str, object] = {"validation_result": "valid"}
+        if answer:
+            result["messages"] = [AIMessage(content=answer)]
+        return result
+
     if not documents or not context or context == NO_DOCUMENTS_MESSAGE:
-        return {"validation_result": "insufficient_information"}
+        result: dict[str, object] = {
+            "validation_result": "insufficient_information"
+        }
+        if answer:
+            result["messages"] = [AIMessage(content=answer)]
+        return result
     if not answer:
         return {"validation_result": "needs_revision"}
 
@@ -281,4 +517,9 @@ def validate_answer_node(state: TourismAgentState) -> dict:
         VALIDATION_RESULTS,
         fallback="needs_revision",
     )
-    return {"validation_result": validation_result}
+    result: dict[str, object] = {
+        "validation_result": validation_result
+    }
+    if validation_result in {"valid", "insufficient_information"}:
+        result["messages"] = [AIMessage(content=answer)]
+    return result

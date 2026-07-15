@@ -1,5 +1,6 @@
 """Assemble and compile the manual LangGraph tourism workflow."""
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -14,7 +15,7 @@ from app.graph.state import TourismAgentState
 
 
 def build_graph() -> CompiledStateGraph:
-    """Build and compile the first grounded tourism-agent workflow."""
+    """Build the tourism workflow with isolated in-memory thread history."""
     workflow = StateGraph(TourismAgentState)
 
     workflow.add_node("classify_intent", classify_intent_node)
@@ -35,4 +36,5 @@ def build_graph() -> CompiledStateGraph:
         },
     )
 
-    return workflow.compile()
+    memory = MemorySaver()
+    return workflow.compile(checkpointer=memory)

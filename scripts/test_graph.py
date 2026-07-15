@@ -2,8 +2,7 @@
 
 import sys
 
-from langchain_core.messages import HumanMessage
-
+from app.graph.nodes import classify_tourism_intent
 from app.graph.workflow import build_graph
 from app.utils.logger import configure_application_logging
 
@@ -23,16 +22,24 @@ def main() -> int:
     successful_tests = 0
     failed_tests = 0
 
-    for question in TEST_QUESTIONS:
+    for question_number, question in enumerate(TEST_QUESTIONS, start=1):
         print("\n" + "=" * 72)
         print(f"Question: {question}")
+        print(
+            "Deterministic intent check: "
+            f"{classify_tourism_intent(question)}"
+        )
         try:
             result = graph.invoke(
                 {
-                    "messages": [HumanMessage(content=question)],
                     "question": question,
                     "revision_count": 0,
-                }
+                },
+                config={
+                    "configurable": {
+                        "thread_id": f"graph-test-{question_number}",
+                    }
+                },
             )
         except Exception as exc:
             failed_tests += 1

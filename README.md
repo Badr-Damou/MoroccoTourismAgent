@@ -89,6 +89,7 @@ pip install -U langchain-google-genai
    ```dotenv
    GOOGLE_API_KEY=your_api_key_here
    GEMINI_CHAT_MODEL=gemini-3.5-flash
+   ENABLE_ANSWER_VALIDATION=true
    ```
 
 Never commit `.env` or paste its contents into logs. The application explicitly
@@ -148,6 +149,17 @@ python -m scripts.test_graph
 This runs factual and itinerary questions through classification, retrieval,
 grounded Gemini generation, validation, and at most one revision.
 
+### Test conversation memory
+
+```powershell
+python -m scripts.test_memory
+```
+
+The memory smoke test uses LangGraph `MemorySaver` to retain accepted messages
+and simple travel preferences within one `thread_id`, then confirms that a
+different thread cannot access them. Memory lasts for the lifetime of the
+compiled graph instance and is not persisted across process restarts.
+
 ## Development checks
 
 Compile the application and scripts without making an API request:
@@ -159,3 +171,9 @@ python -m compileall app scripts
 The reusable Gemini chat model is configured in `app/llm/model.py` with
 temperature `0.2`. Set `GEMINI_CHAT_MODEL` in `.env` to choose the model; it
 defaults to the stable `gemini-3.5-flash` model.
+
+Set `ENABLE_ANSWER_VALIDATION=false` during quota-constrained development to
+skip the Gemini validation request. Deterministic intent classification uses no
+Gemini request, so disabled validation reduces normal graph execution to one
+generate-content request per question. Set it back to `true` to restore answer
+validation and the existing maximum one-revision loop.

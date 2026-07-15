@@ -14,15 +14,37 @@ VECTOR_DB_DIR = DATA_DIR / "vectordb"
 CHROMA_COLLECTION_NAME = "morocco_tourism"
 
 load_dotenv(dotenv_path=ENV_FILE)
+
+
+class ConfigurationError(RuntimeError):
+    """Indicate that a required application setting is missing or invalid."""
+
+
+def _read_boolean_setting(name: str, default: bool) -> bool:
+    """Read a strict boolean environment setting with a stable default."""
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    normalized_value = raw_value.strip().lower()
+    if normalized_value in {"1", "true", "yes", "on"}:
+        return True
+    if normalized_value in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigurationError(
+        f"{name} must be one of: true, false, 1, 0, yes, no, on, off."
+    )
+
+
 GOOGLE_API_KEY = (os.getenv("GOOGLE_API_KEY") or "").strip()
 GEMINI_CHAT_MODEL = (
     (os.getenv("GEMINI_CHAT_MODEL") or "").strip()
     or "gemini-3.5-flash"
 )
-
-
-class ConfigurationError(RuntimeError):
-    """Indicate that a required application setting is missing or invalid."""
+ENABLE_ANSWER_VALIDATION = _read_boolean_setting(
+    "ENABLE_ANSWER_VALIDATION",
+    default=True,
+)
 
 
 def ensure_data_directories() -> None:
