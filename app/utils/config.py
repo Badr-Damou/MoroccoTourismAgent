@@ -13,7 +13,7 @@ VECTOR_DB_DIR = DATA_DIR / "vectordb"
 CHROMA_COLLECTION_NAME = "morocco_tourism"
 
 load_dotenv(PROJECT_ROOT / ".env")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
 class ConfigurationError(RuntimeError):
@@ -26,13 +26,13 @@ def ensure_data_directories() -> None:
     VECTOR_DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_openai_api_key() -> str:
-    """Return the configured OpenAI API key or raise a clear error."""
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def get_google_api_key() -> str:
+    """Return the configured GOOGLE API key or raise a clear error."""
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise ConfigurationError(
-            "OPENAI_API_KEY is not configured. Copy .env.example to .env "
-            "and add your OpenAI API key."
+            "GOOGLE_API_KEY is not configured. Copy .env.example to .env "
+            "and add your GOOGLE API key."
         )
     return api_key
 
