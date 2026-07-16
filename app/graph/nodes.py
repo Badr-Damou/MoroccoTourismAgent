@@ -1,6 +1,8 @@
 """Define the processing nodes used by the tourism-agent graph."""
 
+import logging
 import re
+import time
 from collections.abc import Sequence
 
 from langchain_core.messages import (
@@ -17,16 +19,19 @@ from app.tools.retrieval_tool import (
     NO_DOCUMENTS_MESSAGE,
     format_tourism_documents,
 )
-from app.utils.config import ENABLE_ANSWER_VALIDATION
+from app.utils.config import ConfigurationError, ENABLE_ANSWER_VALIDATION
 
 
+LOGGER = logging.getLogger(__name__)
 VALIDATION_RESULTS = {
     "valid",
     "needs_revision",
     "insufficient_information",
 }
-TEMPORARY_GEMINI_STATUS_CODES = {500, 502, 503, 504}
 GEMINI_QUOTA_STATUS_CODE = 429
+MAX_GEMINI_ATTEMPTS = 3
+GEMINI_RETRY_DELAYS_SECONDS = (2, 4, 8)
+NON_RETRYABLE_GEMINI_STATUS_CODES = {400, 401, 403, 404}
 INTENT_RULES = (
     (
         "itinerary",
@@ -245,87 +250,115 @@ def _invoke_gemini(
     messages: list[BaseMessage],
     operation: str,
 ) -> BaseMessage:
-    """Invoke Gemini once and translate temporary service failures clearly."""
+    """Invoke Gemini with bounded retries for temporary availability errors."""
     try:
-        return get_chat_model().invoke(
-            messages,
-            automatic_function_calling={"disable": True},
-        )
+        model = get_chat_model()
     except Exception as exc:
-        if _is_gemini_quota_error(exc):
-            raise RuntimeError(
-                "Gemini quota was exceeded while performing "
-                f"{operation}. Wait for the quota window to reset or use "
-                "another configured model."
-            ) from exc
-        if _is_temporary_gemini_error(exc):
-            raise RuntimeError(
-                "Gemini is temporarily unavailable while performing "
-                f"{operation}. Please try again later."
-            ) from exc
         raise RuntimeError(f"Gemini {operation} failed: {exc}") from exc
 
+    for attempt in range(1, MAX_GEMINI_ATTEMPTS + 1):
+        try:
+            return model.invoke(
+                messages,
+                automatic_function_calling={"disable": True},
+            )
+        except Exception as exc:
+            if _is_gemini_quota_error(exc):
+                raise RuntimeError(
+                    "Gemini quota was exceeded while performing "
+                    f"{operation}. Wait for the quota window to reset or use "
+                    "another configured model."
+                ) from exc
 
-def _is_temporary_gemini_error(exc: BaseException) -> bool:
-    """Return whether an exception chain represents a temporary Gemini 5xx."""
+            retryable = _is_retryable_gemini_error(exc)
+            if retryable and attempt < MAX_GEMINI_ATTEMPTS:
+                delay = GEMINI_RETRY_DELAYS_SECONDS[attempt - 1]
+                LOGGER.warning(
+                    "Gemini is temporarily unavailable during %s "
+                    "(attempt %d/%d). Retrying in %d seconds.",
+                    operation,
+                    attempt,
+                    MAX_GEMINI_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            if retryable:
+                raise RuntimeError(
+                    "Gemini is temporarily unavailable while performing "
+                    f"{operation} after {MAX_GEMINI_ATTEMPTS} attempts. "
+                    "Please try again later."
+                ) from exc
+            raise RuntimeError(
+                f"Gemini {operation} failed: {exc}"
+            ) from exc
+
+    raise RuntimeError(f"Gemini {operation} failed unexpectedly.")
+
+
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    """Return an exception and its unique chained causes in order."""
+    exceptions: list[BaseException] = []
     current: BaseException | None = exc
     visited: set[int] = set()
 
     while current is not None and id(current) not in visited:
         visited.add(id(current))
-        status_candidates = [
-            getattr(current, "code", None),
-            getattr(current, "status_code", None),
-            getattr(getattr(current, "response", None), "status_code", None),
-        ]
-        if any(
-            status in TEMPORARY_GEMINI_STATUS_CODES
-            for status in status_candidates
-        ):
-            return True
-
-        error_text = str(current).upper()
-        status_pattern = "|".join(
-            str(status) for status in TEMPORARY_GEMINI_STATUS_CODES
-        )
-        if re.search(
-            rf"\bHTTP(?:/[0-9.]+)?\s+(?:{status_pattern})\b",
-            error_text,
-        ) or re.search(
-            rf"\b(?:{status_pattern})\s+"
-            r"(?:INTERNAL_SERVER_ERROR|BAD_GATEWAY|SERVICE_UNAVAILABLE|"
-            r"GATEWAY_TIMEOUT|UNAVAILABLE)\b",
-            error_text,
-        ):
-            return True
-
+        exceptions.append(current)
         current = current.__cause__ or current.__context__
+    return exceptions
 
-    return False
+
+def _exception_status_codes(exceptions: Sequence[BaseException]) -> set[int]:
+    """Collect numeric HTTP-like status codes from an exception chain."""
+    status_codes: set[int] = set()
+    for exception in exceptions:
+        candidates = (
+            getattr(exception, "code", None),
+            getattr(exception, "status_code", None),
+            getattr(
+                getattr(exception, "response", None),
+                "status_code",
+                None,
+            ),
+        )
+        for candidate in candidates:
+            if isinstance(candidate, int):
+                status_codes.add(candidate)
+    return status_codes
+
+
+def _is_retryable_gemini_error(exc: BaseException) -> bool:
+    """Retry only 503, UNAVAILABLE, or high-demand service failures."""
+    exceptions = _exception_chain(exc)
+    status_codes = _exception_status_codes(exceptions)
+    if status_codes & NON_RETRYABLE_GEMINI_STATUS_CODES:
+        return False
+    if any(
+        isinstance(exception, (ConfigurationError, TypeError, ValueError))
+        for exception in exceptions
+    ):
+        return False
+
+    error_text = " ".join(str(exception) for exception in exceptions).upper()
+    return (
+        503 in status_codes
+        or bool(re.search(r"\b503\b", error_text))
+        or "UNAVAILABLE" in error_text
+        or "HIGH DEMAND" in error_text
+    )
 
 
 def _is_gemini_quota_error(exc: BaseException) -> bool:
     """Return whether an exception chain represents a Gemini quota error."""
-    current: BaseException | None = exc
-    visited: set[int] = set()
-
-    while current is not None and id(current) not in visited:
-        visited.add(id(current))
-        status_candidates = [
-            getattr(current, "code", None),
-            getattr(current, "status_code", None),
-            getattr(getattr(current, "response", None), "status_code", None),
-        ]
-        error_text = str(current).upper()
-        if (
-            GEMINI_QUOTA_STATUS_CODE in status_candidates
-            or "RESOURCE_EXHAUSTED" in error_text
-            or re.search(r"\bHTTP(?:/[0-9.]+)?\s+429\b", error_text)
-        ):
-            return True
-        current = current.__cause__ or current.__context__
-
-    return False
+    exceptions = _exception_chain(exc)
+    status_codes = _exception_status_codes(exceptions)
+    error_text = " ".join(str(exception) for exception in exceptions).upper()
+    return (
+        GEMINI_QUOTA_STATUS_CODE in status_codes
+        or "RESOURCE_EXHAUSTED" in error_text
+        or bool(re.search(r"\bHTTP(?:/[0-9.]+)?\s+429\b", error_text))
+    )
 
 
 def _normalize_choice(

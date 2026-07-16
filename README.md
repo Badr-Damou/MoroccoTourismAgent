@@ -149,6 +149,17 @@ python -m scripts.test_graph
 This runs factual and itinerary questions through classification, retrieval,
 grounded Gemini generation, validation, and at most one revision.
 
+Run one question or customize the default 10-second pause between suite cases:
+
+```powershell
+python -m scripts.test_graph --question "Plan a two-day trip to Chefchaouen."
+python -m scripts.test_graph --pause-seconds 15
+```
+
+Temporary Gemini `503`, `UNAVAILABLE`, and high-demand responses are retried
+within a maximum of three attempts. Invalid requests, authentication failures,
+missing models, quota errors, and missing configuration are not retried.
+
 ### Test conversation memory
 
 ```powershell

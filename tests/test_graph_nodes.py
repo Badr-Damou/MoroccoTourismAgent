@@ -20,6 +20,20 @@ class FakeQuotaError(RuntimeError):
     code = 429
 
 
+class FakeTemporaryError(RuntimeError):
+    """Represent a retryable Gemini service response."""
+
+    code = 503
+
+
+class FakeClientError(RuntimeError):
+    """Represent a non-retryable Gemini request response."""
+
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class GraphNodeTests(unittest.TestCase):
     """Cover quota-saving classification and validation behavior."""
 
@@ -94,6 +108,48 @@ class GraphNodeTests(unittest.TestCase):
 
         self.assertIs(raised.exception.__cause__, quota_error)
         get_model.return_value.invoke.assert_called_once()
+
+    @patch("app.graph.nodes.time.sleep")
+    def test_temporary_error_retries_at_most_three_attempts(
+        self,
+        sleep,
+    ) -> None:
+        """Retry 503 responses twice with bounded exponential backoff."""
+        temporary_error = FakeTemporaryError("503 UNAVAILABLE: high demand")
+        expected_response = AIMessage(content="Recovered answer")
+
+        with patch("app.graph.nodes.get_chat_model") as get_model:
+            get_model.return_value.invoke.side_effect = [
+                temporary_error,
+                temporary_error,
+                expected_response,
+            ]
+            response = _invoke_gemini([], "answer generation")
+
+        self.assertIs(response, expected_response)
+        self.assertEqual(get_model.return_value.invoke.call_count, 3)
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [2, 4],
+        )
+
+    @patch("app.graph.nodes.time.sleep")
+    def test_client_errors_are_not_retried(self, sleep) -> None:
+        """Never retry invalid, authentication, or missing-model errors."""
+        for status_code in (400, 401, 403, 404):
+            with self.subTest(status_code=status_code):
+                client_error = FakeClientError(
+                    f"HTTP {status_code}: model UNAVAILABLE",
+                    status_code,
+                )
+                with patch("app.graph.nodes.get_chat_model") as get_model:
+                    get_model.return_value.invoke.side_effect = client_error
+                    with self.assertRaises(RuntimeError) as raised:
+                        _invoke_gemini([], "answer generation")
+
+                self.assertIs(raised.exception.__cause__, client_error)
+                get_model.return_value.invoke.assert_called_once()
+        sleep.assert_not_called()
 
 
 if __name__ == "__main__":
