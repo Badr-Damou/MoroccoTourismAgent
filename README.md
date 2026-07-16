@@ -26,7 +26,6 @@ MoroccoTourismAgent/
 |   |-- rag/         # Document ingestion and retrieval pipeline
 |   |-- tools/       # Tools exposed to the agent
 |   |-- llm/         # Gemini chat-model configuration
-|   |-- memory/      # Conversation memory
 |   |-- evaluation/  # Evaluation questions and utilities
 |   `-- utils/       # Shared configuration and logging helpers
 |-- data/
