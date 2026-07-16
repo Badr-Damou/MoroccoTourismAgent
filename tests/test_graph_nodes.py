@@ -13,6 +13,7 @@ from app.graph.nodes import (
     classify_tourism_intent,
     compare_destinations_node,
     estimate_budget_node,
+    generate_answer_node,
     plan_itinerary_node,
     transport_recommendation_node,
     validate_answer_node,
@@ -148,8 +149,190 @@ Transportation: 150 MAD Activities: 350 MAD Estimated Total: 1,750 MAD/day
         )
 
         self.assertEqual(result["selected_path"], "budget")
-        self.assertEqual(result["budget_result"]["daily_total_mad"], 1750.0)
-        self.assertEqual(result["budget_result"]["total_budget_mad"], 5250.0)
+        self.assertEqual(
+            result["budget_result"],
+            {
+                "days": 3,
+                "daily_total_mad": 1750.0,
+                "accommodation_total_mad": 2700.0,
+                "food_total_mad": 1050.0,
+                "local_transport_total_mad": 450.0,
+                "activities_total_mad": 1050.0,
+                "intercity_transport_mad": 0.0,
+                "total_budget_mad": 5250.0,
+            },
+        )
+
+    @patch("app.graph.nodes._invoke_chat_model")
+    def test_budget_answer_uses_tool_values_verbatim(self, invoke_model) -> None:
+        """Render every three-day Marrakech total without LLM arithmetic."""
+        result = generate_answer_node(
+            {
+                "question": (
+                    "Estimate the budget for three days in Marrakech for a "
+                    "moderate traveler."
+                ),
+                "intent": "budget",
+                "selected_path": "budget",
+                "retrieved_documents": [
+                    Document(
+                        page_content="Moderate prices.",
+                        metadata={"filename": "Marrakech.pdf", "page": 7},
+                    )
+                ],
+                "context": "[Source 1: Marrakech.pdf, page 7] Moderate prices.",
+                "budget_result": {
+                    "days": 3,
+                    "daily_total_mad": 1750.0,
+                    "accommodation_total_mad": 2700.0,
+                    "food_total_mad": 1050.0,
+                    "local_transport_total_mad": 450.0,
+                    "activities_total_mad": 1050.0,
+                    "intercity_transport_mad": 0.0,
+                    "total_budget_mad": 5250.0,
+                },
+                "revision_count": 0,
+            }
+        )
+
+        invoke_model.assert_not_called()
+        self.assertIn("Accommodation: 2,700.00 MAD", result["final_answer"])
+        self.assertIn("Food: 1,050.00 MAD", result["final_answer"])
+        self.assertIn("Local transport: 450.00 MAD", result["final_answer"])
+        self.assertIn("Activities: 1,050.00 MAD", result["final_answer"])
+        self.assertIn("Intercity transport: 0.00 MAD", result["final_answer"])
+        self.assertIn("Daily total: 1,750.00 MAD", result["final_answer"])
+        self.assertIn("Trip total: 5,250.00 MAD", result["final_answer"])
+        self.assertIn("Marrakech.pdf, page 7", result["final_answer"])
+
+    @patch("app.graph.nodes.ENABLE_ANSWER_VALIDATION", True)
+    @patch("app.graph.nodes._invoke_chat_model")
+    def test_budget_conflict_needs_revision(self, invoke_model) -> None:
+        """Reject an explanation that contradicts deterministic trip totals."""
+        result = validate_answer_node(
+            {
+                "question": (
+                    "Estimate the budget for three days in Marrakech for a "
+                    "moderate traveler."
+                ),
+                "intent": "budget",
+                "selected_path": "budget",
+                "retrieved_documents": [
+                    Document(
+                        page_content="Moderate prices.",
+                        metadata={"filename": "Marrakech.pdf", "page": 7},
+                    )
+                ],
+                "context": "[Source 1: Marrakech.pdf, page 7] Moderate prices.",
+                "budget_result": {
+                    "days": 3,
+                    "daily_total_mad": 1750.0,
+                    "accommodation_total_mad": 2700.0,
+                    "food_total_mad": 1050.0,
+                    "local_transport_total_mad": 450.0,
+                    "activities_total_mad": 1050.0,
+                    "intercity_transport_mad": 0.0,
+                    "total_budget_mad": 5250.0,
+                },
+                "final_answer": (
+                    "Accommodation: 2,700.00 MAD\n"
+                    "Food: 1,050.00 MAD\n"
+                    "Local transport: 450.00 MAD\n"
+                    "Activities: 1,050.00 MAD\n"
+                    "Intercity transport: 0.00 MAD\n"
+                    "Daily total: 1,750.00 MAD\n"
+                    "Trip total: 5,000.00 MAD\n"
+                    "Source: Marrakech.pdf, page 7"
+                ),
+            }
+        )
+
+        self.assertEqual(result["validation_result"], "needs_revision")
+        self.assertIn("trip total conflicts", result["validation_feedback"])
+        invoke_model.assert_not_called()
+
+    @patch("app.graph.nodes._invoke_chat_model")
+    def test_missing_budget_result_is_explicit(self, invoke_model) -> None:
+        """State clearly that a missing deterministic budget cannot be used."""
+        result = generate_answer_node(
+            {
+                "question": "Estimate a three-day Marrakech budget.",
+                "intent": "budget",
+                "selected_path": "budget",
+                "budget_result": "",
+                "revision_count": 0,
+            }
+        )
+
+        self.assertIn("budget cannot be calculated", result["final_answer"])
+        invoke_model.assert_not_called()
+
+    @patch("app.graph.nodes.ENABLE_ANSWER_VALIDATION", True)
+    @patch("app.graph.nodes._invoke_chat_model")
+    def test_comparison_without_sources_needs_revision(
+        self,
+        invoke_model,
+    ) -> None:
+        """Reject an unsourced Marrakech versus Chefchaouen comparison."""
+        result = validate_answer_node(
+            {
+                "question": "Compare Marrakech and Chefchaouen.",
+                "intent": "comparison",
+                "selected_path": "comparison",
+                "retrieved_documents": [
+                    Document(
+                        page_content="Grounded comparison facts.",
+                        metadata={"filename": "Marrakech.pdf", "page": 2},
+                    )
+                ],
+                "context": "[Source 1: Marrakech.pdf, page 2] Facts.",
+                "comparison_result": {
+                    "destination_a": "Marrakech",
+                    "destination_b": "Chefchaouen",
+                },
+                "final_answer": "Marrakech is warmer than Chefchaouen.",
+            }
+        )
+
+        self.assertEqual(result["validation_result"], "needs_revision")
+        self.assertIn("source", result["validation_feedback"].lower())
+        invoke_model.assert_not_called()
+
+    @patch("app.graph.nodes.ENABLE_ANSWER_VALIDATION", True)
+    @patch("app.graph.nodes._invoke_chat_model")
+    def test_transport_without_sources_needs_revision(
+        self,
+        invoke_model,
+    ) -> None:
+        """Reject unsupported Tangier-to-Chefchaouen transport claims."""
+        result = validate_answer_node(
+            {
+                "question": "How can I travel from Tangier to Chefchaouen?",
+                "intent": "transport",
+                "selected_path": "transport",
+                "retrieved_documents": [
+                    Document(
+                        page_content="Grounded route facts.",
+                        metadata={
+                            "filename": "Transportation in Morocco.pdf",
+                            "page": 3,
+                        },
+                    )
+                ],
+                "context": (
+                    "[Source 1: Transportation in Morocco.pdf, page 3] Facts."
+                ),
+                "transport_result": {
+                    "origin": "Tangier",
+                    "destination": "Chefchaouen",
+                },
+                "final_answer": "Take a direct airport train for two hours.",
+            }
+        )
+
+        self.assertEqual(result["validation_result"], "needs_revision")
+        self.assertIn("source", result["validation_feedback"].lower())
+        invoke_model.assert_not_called()
 
     @patch("app.graph.nodes.ENABLE_ANSWER_VALIDATION", False)
     @patch("app.graph.nodes._invoke_gemini")

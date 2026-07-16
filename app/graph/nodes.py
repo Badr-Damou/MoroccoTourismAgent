@@ -7,6 +7,7 @@ import time
 from collections.abc import Sequence
 from difflib import SequenceMatcher
 
+from langchain_core.documents import Document
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -15,7 +16,7 @@ from langchain_core.messages import (
 )
 
 from app.graph.state import TourismAgentState
-from app.llm.model import get_chat_model
+from app.llm.model import describe_ollama_error, get_chat_model
 from app.rag.retriever import retrieve_documents
 from app.tools.retrieval_tool import (
     NO_DOCUMENTS_MESSAGE,
@@ -27,7 +28,11 @@ from app.tools import (
     estimate_trip_budget,
     prepare_transport_recommendation,
 )
-from app.utils.config import ConfigurationError, ENABLE_ANSWER_VALIDATION
+from app.utils.config import (
+    ConfigurationError,
+    ENABLE_ANSWER_VALIDATION,
+    LLM_PROVIDER,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -179,6 +184,15 @@ SPECIALIZED_RESULT_FIELDS = {
     "budget": "budget_result",
     "transport": "transport_result",
 }
+BUDGET_ANSWER_FIELDS = (
+    ("Accommodation", "accommodation_total_mad"),
+    ("Food", "food_total_mad"),
+    ("Local transport", "local_transport_total_mad"),
+    ("Activities", "activities_total_mad"),
+    ("Intercity transport", "intercity_transport_mad"),
+    ("Daily total", "daily_total_mad"),
+    ("Trip total", "total_budget_mad"),
+)
 
 
 def _require_question(state: TourismAgentState) -> str:
@@ -580,6 +594,118 @@ def _format_specialized_result(state: TourismAgentState) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _complete_budget_result(
+    state: TourismAgentState,
+) -> dict[str, object] | None:
+    """Return a complete deterministic budget result when available."""
+    result = state.get("budget_result")
+    if (
+        not isinstance(result, dict)
+        or result.get("status") == "missing_information"
+    ):
+        return None
+    required_fields = {"days", *(field for _, field in BUDGET_ANSWER_FIELDS)}
+    if not required_fields.issubset(result):
+        return None
+    if not isinstance(result["days"], int):
+        return None
+    if any(
+        not isinstance(result[field], (int, float))
+        for _, field in BUDGET_ANSWER_FIELDS
+    ):
+        return None
+    return result
+
+
+def _format_mad(value: object) -> str:
+    """Format a deterministic numeric tool value without recalculating it."""
+    return f"{float(value):,.2f}"
+
+
+def _source_references(
+    documents: Sequence[Document],
+    destination: str = "",
+) -> list[str]:
+    """Return unique filename/page references, preferring one destination."""
+    normalized_destination = _normalize_location_name(destination)
+    references: list[str] = []
+    fallback_references: list[str] = []
+    for document in documents:
+        filename = str(document.metadata.get("filename", "unknown"))
+        page = document.metadata.get("page", "unknown")
+        reference = f"{filename}, page {page}"
+        if reference not in fallback_references:
+            fallback_references.append(reference)
+        if (
+            normalized_destination
+            and normalized_destination in _normalize_location_name(filename)
+            and reference not in references
+        ):
+            references.append(reference)
+    return references or fallback_references
+
+
+def _generate_budget_answer(state: TourismAgentState) -> str:
+    """Render authoritative budget fields directly from tool output."""
+    budget_result = _complete_budget_result(state)
+    if budget_result is None:
+        return (
+            "The budget cannot be calculated because a complete "
+            "deterministic budget result is unavailable."
+        )
+
+    days = budget_result["days"]
+    lines = [f"Budget for {days} day{'s' if days != 1 else ''}:"]
+    lines.extend(
+        f"- {label}: {_format_mad(budget_result[field])} MAD"
+        for label, field in BUDGET_ANSWER_FIELDS
+    )
+
+    destinations = _extract_destinations(_require_question(state))
+    references = _source_references(
+        state.get("retrieved_documents", []),
+        destinations[0] if destinations else "",
+    )
+    if references:
+        lines.append("Sources: " + "; ".join(references))
+    return "\n".join(lines)
+
+
+def _has_source_reference(answer: str) -> bool:
+    """Return whether an answer names a PDF and source page together."""
+    return bool(
+        re.search(
+            r"[\w .’'-]+\.pdf[^\n]{0,50}\bpage\s+\d+",
+            answer,
+            re.I,
+        )
+    )
+
+
+def _budget_validation_issue(
+    answer: str,
+    budget_result: dict[str, object],
+) -> str:
+    """Identify missing or conflicting authoritative budget values."""
+    issues: list[str] = []
+    for label, field in BUDGET_ANSWER_FIELDS:
+        expected_value = _format_mad(budget_result[field])
+        value_matches = re.findall(
+            rf"{re.escape(label)}\s*:\s*([\d,]+(?:\.\d+)?)\s*MAD",
+            answer,
+            re.I,
+        )
+        if not value_matches:
+            issues.append(f"missing {label.lower()}")
+            continue
+        if any(value != expected_value for value in value_matches):
+            issues.append(
+                f"{label.lower()} conflicts with budget_result "
+                f"({expected_value} MAD)"
+            )
+    return "; ".join(issues)
+
+
 def _format_conversation_history(
     messages: Sequence[BaseMessage],
     current_question: str,
@@ -601,6 +727,25 @@ def _format_conversation_history(
         role = "User" if isinstance(message, HumanMessage) else "Assistant"
         formatted_messages.append(f"{role}: {_message_text(message)}")
     return "\n".join(formatted_messages)
+
+
+def _invoke_chat_model(
+    messages: list[BaseMessage],
+    operation: str,
+) -> BaseMessage:
+    """Invoke the configured chat provider with provider-specific errors."""
+    if LLM_PROVIDER == "gemini":
+        return _invoke_gemini(messages, operation)
+
+    try:
+        model = get_chat_model()
+    except Exception as exc:
+        raise RuntimeError(describe_ollama_error(exc)) from exc
+
+    try:
+        return model.invoke(messages)
+    except Exception as exc:
+        raise RuntimeError(describe_ollama_error(exc)) from exc
 
 
 def _invoke_gemini(
@@ -987,6 +1132,12 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     is_revision = state.get("validation_result") == "needs_revision"
     revision_count = current_revision_count + 1 if is_revision else 0
 
+    if selected_path == "budget":
+        return {
+            "final_answer": _generate_budget_answer(state),
+            "revision_count": revision_count,
+        }
+
     if not documents or not context or context == NO_DOCUMENTS_MESSAGE:
         return {
             "final_answer": (
@@ -999,10 +1150,6 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     structure_rules = {
         "itinerary": "Organize the answer by day with clear day headings.",
         "comparison": "Organize the answer by explicit comparison criteria.",
-        "budget": (
-            "Show accommodation, food, local transport, activities, daily "
-            "total, and trip total in clearly labeled sections."
-        ),
         "transport": (
             "Compare available transport information by travel time, cost, "
             "and convenience or comfort."
@@ -1024,19 +1171,20 @@ def generate_answer_node(state: TourismAgentState) -> dict:
             "\n\n"
         )
 
-    response = _invoke_gemini(
+    response = _invoke_chat_model(
         [
             SystemMessage(
                 content=(
                     "You are a Morocco tourism assistant. Answer only from "
                     "the supplied retrieved context and specialized tool "
-                    "result. Do not invent attractions, prices, routes, "
-                    "schedules, travel times, or other unsupported facts. "
-                    "Use calculated totals exactly as provided by the budget "
-                    "tool; do not calculate replacement totals. If the "
-                    "available information cannot answer the question, say "
-                    "clearly what is unavailable. Cite sources using the "
-                    "filename and page shown in the context. "
+                    "result. Every factual statement must be directly "
+                    "supported by one of those two inputs. Do not introduce "
+                    "destinations, attractions, airports, routes, prices, "
+                    "durations, schedules, or climate facts that do not "
+                    "appear there. When a requested detail is absent, state "
+                    "explicitly that it is unavailable in the retrieved "
+                    "information. Cite the supporting filename and page for "
+                    "each factual claim. "
                     "Use stored preferences when relevant, but never let them "
                     "override or invent facts beyond the retrieved context. "
                     f"{structure_rule}"
@@ -1062,7 +1210,7 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     )
     answer = _message_text(response)
     if not answer:
-        raise RuntimeError("Gemini answer generation returned an empty response.")
+        raise RuntimeError("Chat model answer generation returned an empty response.")
 
     return {
         "final_answer": answer,
@@ -1089,6 +1237,33 @@ def validate_answer_node(state: TourismAgentState) -> dict:
             result["messages"] = [AIMessage(content=answer)]
         return result
 
+    if selected_path == "budget":
+        budget_result = _complete_budget_result(state)
+        if budget_result is None:
+            if "budget cannot be calculated" in answer.casefold():
+                return {
+                    "validation_result": "insufficient_information",
+                    "validation_feedback": "",
+                    "messages": [AIMessage(content=answer)],
+                }
+            return {
+                "validation_result": "needs_revision",
+                "validation_feedback": (
+                    "State clearly that the budget cannot be calculated "
+                    "because budget_result is missing or incomplete."
+                ),
+            }
+
+        budget_issue = _budget_validation_issue(answer, budget_result)
+        if budget_issue:
+            return {
+                "validation_result": "needs_revision",
+                "validation_feedback": (
+                    "The answer contradicts or omits authoritative "
+                    f"budget_result values: {budget_issue}."
+                ),
+            }
+
     if not documents or not context or context == NO_DOCUMENTS_MESSAGE:
         result: dict[str, object] = {
             "validation_result": "insufficient_information",
@@ -1105,20 +1280,48 @@ def validate_answer_node(state: TourismAgentState) -> dict:
             "validation_feedback": "The generated answer was empty.",
         }
 
-    response = _invoke_gemini(
+    if selected_path in {
+        "budget",
+        "comparison",
+        "transport",
+        "itinerary",
+        "factual",
+    } and not _has_source_reference(answer):
+        return {
+            "validation_result": "needs_revision",
+            "validation_feedback": (
+                "Factual claims must include supporting source filenames "
+                "and page references."
+            ),
+        }
+    if selected_path == "budget":
+        return {
+            "validation_result": "valid",
+            "validation_feedback": "",
+            "messages": [AIMessage(content=answer)],
+        }
+
+    response = _invoke_chat_model(
         [
             SystemMessage(
                 content=(
                     "Validate the proposed tourism answer. Check that it "
                     "answers the question, contains only claims grounded in "
-                    "the retrieved context, mentions source filenames and "
-                    "pages, and matches the requested intent structure. "
+                    "the retrieved context or deterministic specialized tool "
+                    "output, cites a filename and page for every factual "
+                    "claim, and matches the requested intent structure. Mark "
+                    "needs_revision if any destination, attraction, airport, "
+                    "route, price, duration, schedule, or climate claim is "
+                    "absent from the supplied inputs. Mark needs_revision if "
+                    "the explanation conflicts with tool fields or totals. "
                     "Itinerary answers must be organized by day; comparison "
                     "answers by criteria; budget answers must separate "
                     "accommodation, food, transport, activities, and totals; "
                     "transport answers must compare time, cost, and "
                     "convenience or comfort. Treat deterministic tool output "
-                    "as authoritative for structured inputs and arithmetic. "
+                    "as authoritative for structured inputs and arithmetic; "
+                    "any contradiction with budget_result requires "
+                    "needs_revision. "
                     "Return "
                     "exactly one label: valid, needs_revision, or "
                     "insufficient_information. Use insufficient_information "

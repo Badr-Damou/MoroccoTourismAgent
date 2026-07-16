@@ -42,6 +42,16 @@ SPECIALIZED_RESULT_FIELDS = {
     "budget": "budget_result",
     "transport": "transport_result",
 }
+EXPECTED_BUDGET_RESULT = {
+    "days": 3,
+    "daily_total_mad": 1750.0,
+    "accommodation_total_mad": 2700.0,
+    "food_total_mad": 1050.0,
+    "local_transport_total_mad": 450.0,
+    "activities_total_mad": 1050.0,
+    "intercity_transport_mad": 0.0,
+    "total_budget_mad": 5250.0,
+}
 TEMPORARY_GEMINI_MARKERS = (
     "429",
     "503",
@@ -112,6 +122,40 @@ def _format_result(result: dict[str, object] | str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _case_specific_assertion(
+    selected_path: str,
+    specialized_result: dict[str, object] | str,
+    answer: str,
+) -> tuple[bool, str]:
+    """Check deterministic values for the requested regression routes."""
+    if not isinstance(specialized_result, dict):
+        return False, "The specialized result is not structured."
+    if selected_path == "comparison":
+        passed = (
+            specialized_result.get("destination_a") == "Marrakech"
+            and specialized_result.get("destination_b") == "Chefchaouen"
+        )
+        return passed, "Comparison endpoints must be Marrakech and Chefchaouen."
+    if selected_path == "transport":
+        passed = (
+            specialized_result.get("origin") == "Tangier"
+            and specialized_result.get("destination") == "Chefchaouen"
+        )
+        return passed, "Transport endpoints must be Tangier and Chefchaouen."
+    if selected_path == "budget":
+        exact_result = specialized_result == EXPECTED_BUDGET_RESULT
+        exact_answer_values = all(
+            f"{float(value):,.2f} MAD" in answer
+            for field, value in EXPECTED_BUDGET_RESULT.items()
+            if field != "days"
+        )
+        return (
+            exact_result and exact_answer_values,
+            "Budget tool fields and rendered totals must match exactly.",
+        )
+    return True, ""
+
+
 def main(arguments: Sequence[str] | None = None) -> int:
     """Run all routing cases while preserving results after failures."""
     args = _parse_args(arguments)
@@ -169,10 +213,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 and specialized_result.get("status") != "missing_information"
             )
         )
+        case_specific_matches, case_specific_message = (
+            _case_specific_assertion(
+                selected_path,
+                specialized_result,
+                result.get("final_answer", ""),
+            )
+            if selected_path in {"comparison", "budget", "transport"}
+            else (True, "")
+        )
         route_matches = (
             detected_intent == expected_path
             and selected_path == expected_path
             and specialized_result_ready
+            and case_specific_matches
         )
 
         print(f"Detected intent: {detected_intent}")
@@ -200,6 +254,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 "Routing assertion: failed; expected intent/path "
                 f"'{expected_path}' with a complete specialized result."
             )
+            if case_specific_message and not case_specific_matches:
+                print(f"Case-specific assertion: {case_specific_message}")
 
     print("\n" + "=" * 72)
     print("Routing test summary")

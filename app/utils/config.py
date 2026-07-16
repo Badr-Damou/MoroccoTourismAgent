@@ -37,6 +37,18 @@ def _read_boolean_setting(name: str, default: bool) -> bool:
 
 
 GOOGLE_API_KEY = (os.getenv("GOOGLE_API_KEY") or "").strip()
+LLM_PROVIDER = (
+    (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    or "gemini"
+)
+OLLAMA_CHAT_MODEL = (
+    (os.getenv("OLLAMA_CHAT_MODEL") or "").strip()
+    or "qwen2.5:3b"
+)
+OLLAMA_BASE_URL = (
+    (os.getenv("OLLAMA_BASE_URL") or "").strip()
+    or "http://localhost:11434"
+)
 GEMINI_CHAT_MODEL = (
     (os.getenv("GEMINI_CHAT_MODEL") or "").strip()
     or "gemini-3.5-flash"
