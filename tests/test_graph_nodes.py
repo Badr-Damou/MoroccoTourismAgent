@@ -6,10 +6,15 @@ from unittest.mock import patch
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 
+from app.graph.edges import route_by_intent
 from app.graph.nodes import (
     _invoke_gemini,
     classify_intent_node,
     classify_tourism_intent,
+    compare_destinations_node,
+    estimate_budget_node,
+    plan_itinerary_node,
+    transport_recommendation_node,
     validate_answer_node,
 )
 
@@ -43,7 +48,10 @@ class GraphNodeTests(unittest.TestCase):
             "What are the main attractions in Marrakech?": "factual",
             "Plan a two-day itinerary for Chefchaouen.": "itinerary",
             "Compare Marrakech versus Essaouira.": "comparison",
-            "Estimate the budget and cost for three days.": "budget",
+            (
+                "Estimate the budget for three days in Marrakech for a "
+                "moderate traveler."
+            ): "budget",
             "How can I travel from Fez to Rabat by train?": "transport",
             "Which city should I visit?": "general",
         }
@@ -67,6 +75,81 @@ class GraphNodeTests(unittest.TestCase):
 
         self.assertEqual(result["intent"], "itinerary")
         invoke_gemini.assert_not_called()
+
+    def test_route_by_intent_supports_every_path(self) -> None:
+        """Route every supported intent without an LLM call."""
+        for intent in (
+            "factual",
+            "general",
+            "itinerary",
+            "comparison",
+            "budget",
+            "transport",
+        ):
+            with self.subTest(intent=intent):
+                self.assertEqual(route_by_intent({"intent": intent}), intent)
+        self.assertEqual(route_by_intent({"intent": "unknown"}), "general")
+
+    def test_specialized_nodes_prepare_expected_tool_results(self) -> None:
+        """Prepare itinerary, comparison, and transport inputs locally."""
+        itinerary = plan_itinerary_node(
+            {
+                "question": "Plan a two-day trip to Chefchaouen.",
+                "user_preferences": ["quiet", "moderate budget"],
+            }
+        )
+        comparison = compare_destinations_node(
+            {
+                "question": "Compare Marrakech and Chefchaouen.",
+                "user_preferences": ["cultural"],
+            }
+        )
+        transport = transport_recommendation_node(
+            {
+                "question": (
+                    "What is the fastest way to travel from Tangier to "
+                    "Chefchaouen?"
+                ),
+            }
+        )
+
+        self.assertEqual(itinerary["selected_path"], "itinerary")
+        self.assertEqual(itinerary["itinerary_result"]["days"], 2)
+        self.assertEqual(comparison["selected_path"], "comparison")
+        self.assertEqual(
+            comparison["comparison_result"]["destination_b"],
+            "Chefchaouen",
+        )
+        self.assertEqual(transport["selected_path"], "transport")
+        self.assertEqual(
+            transport["transport_result"]["preference"],
+            "fastest",
+        )
+
+    def test_budget_node_scopes_prices_to_requested_destination(self) -> None:
+        """Never mix another destination's prices into a budget result."""
+        context = """[Source 1: Chefchaoun.pdf, page 5]
+Mid-range Traveler Accommodation: 700 MAD Food: 250 MAD
+Transportation: 150 MAD Activities: 200 MAD Estimated Total: 1,300 MAD/day
+
+[Source 2: Marrakech.pdf, page 7]
+Mid-range Traveler Accommodation: 900 MAD Food: 350 MAD
+Transportation: 150 MAD Activities: 350 MAD Estimated Total: 1,750 MAD/day
+"""
+
+        result = estimate_budget_node(
+            {
+                "question": (
+                    "Estimate the budget for three days in Marrakech for a "
+                    "moderate traveler."
+                ),
+                "context": context,
+            }
+        )
+
+        self.assertEqual(result["selected_path"], "budget")
+        self.assertEqual(result["budget_result"]["daily_total_mad"], 1750.0)
+        self.assertEqual(result["budget_result"]["total_budget_mad"], 5250.0)
 
     @patch("app.graph.nodes.ENABLE_ANSWER_VALIDATION", False)
     @patch("app.graph.nodes._invoke_gemini")

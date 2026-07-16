@@ -17,6 +17,12 @@ class TourismAgentState(TypedDict, total=False):
     retrieved_documents: list[Document]
     context: str
     user_preferences: list[str]
+    selected_path: str
+    itinerary_result: dict[str, object] | str
+    comparison_result: dict[str, object] | str
+    budget_result: dict[str, object] | str
+    transport_result: dict[str, object] | str
     final_answer: str
     validation_result: str
+    validation_feedback: str
     revision_count: int

@@ -2,6 +2,8 @@
 
 from typing import TypedDict
 
+from langchain_core.tools import tool
+
 from app.tools.validators import (
     validate_non_negative_number,
     validate_positive_integer,
@@ -21,6 +23,7 @@ class TripBudgetEstimate(TypedDict):
     total_budget_mad: float
 
 
+@tool
 def estimate_trip_budget(
     days: int,
     accommodation_per_day: float,

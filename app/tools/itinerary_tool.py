@@ -2,6 +2,8 @@
 
 from typing import TypedDict
 
+from langchain_core.tools import tool
+
 from app.tools.validators import (
     validate_optional_string,
     validate_positive_integer,
@@ -19,6 +21,7 @@ class ItineraryRequest(TypedDict):
     planning_instructions: str
 
 
+@tool
 def build_itinerary(
     destination: str,
     days: int,

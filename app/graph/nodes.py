@@ -1,9 +1,11 @@
 """Define the processing nodes used by the tourism-agent graph."""
 
+import json
 import logging
 import re
 import time
 from collections.abc import Sequence
+from difflib import SequenceMatcher
 
 from langchain_core.messages import (
     AIMessage,
@@ -19,6 +21,12 @@ from app.tools.retrieval_tool import (
     NO_DOCUMENTS_MESSAGE,
     format_tourism_documents,
 )
+from app.tools import (
+    build_itinerary,
+    compare_destinations,
+    estimate_trip_budget,
+    prepare_transport_recommendation,
+)
 from app.utils.config import ConfigurationError, ENABLE_ANSWER_VALIDATION
 
 
@@ -33,6 +41,19 @@ MAX_GEMINI_ATTEMPTS = 3
 GEMINI_RETRY_DELAYS_SECONDS = (2, 4, 8)
 NON_RETRYABLE_GEMINI_STATUS_CODES = {400, 401, 403, 404}
 INTENT_RULES = (
+    (
+        "budget",
+        (
+            "budget",
+            "cost",
+            "price",
+            "estimate",
+            "afford",
+            "expensive",
+            "cheap",
+            "how much",
+        ),
+    ),
     (
         "itinerary",
         (
@@ -52,19 +73,6 @@ INTENT_RULES = (
             "vs",
             "difference",
             "better than",
-        ),
-    ),
-    (
-        "budget",
-        (
-            "budget",
-            "cost",
-            "price",
-            "estimate",
-            "afford",
-            "expensive",
-            "cheap",
-            "how much",
         ),
     ),
     (
@@ -119,6 +127,57 @@ PREFERENCE_PATTERNS = {
     "family": r"\b(?:family|family-friendly|children|kids)\b",
     "couple": r"\b(?:couple|romantic|honeymoon)\b",
     "solo": r"\b(?:solo|alone|independent traveler)\b",
+}
+NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+}
+DESTINATION_STOP_WORDS = {
+    "assistant",
+    "budget",
+    "can",
+    "compare",
+    "day",
+    "days",
+    "destination",
+    "estimate",
+    "give",
+    "how",
+    "i",
+    "plan",
+    "please",
+    "recommend",
+    "source",
+    "tell",
+    "travel",
+    "trip",
+    "user",
+    "what",
+    "which",
+}
+DEFAULT_COMPARISON_CRITERIA = [
+    "attractions",
+    "climate",
+    "budget",
+    "transport",
+]
+SPECIALIZED_RESULT_FIELDS = {
+    "itinerary": "itinerary_result",
+    "comparison": "comparison_result",
+    "budget": "budget_result",
+    "transport": "transport_result",
 }
 
 
@@ -221,6 +280,304 @@ def extract_user_preferences(
             preferences.append(preference)
 
     return preferences
+
+
+def _extract_days(text: str) -> int | None:
+    """Extract a numeric or simple word-based trip duration."""
+    numeric_match = re.search(r"\b(\d+)\s*(?:-|\s)?days?\b", text, re.I)
+    if numeric_match:
+        return int(numeric_match.group(1))
+
+    word_pattern = "|".join(NUMBER_WORDS)
+    word_match = re.search(
+        rf"\b({word_pattern})\s*(?:-|\s)days?\b",
+        text,
+        re.I,
+    )
+    if word_match:
+        return NUMBER_WORDS[word_match.group(1).lower()]
+    return None
+
+
+def _clean_destination_candidate(value: str) -> str:
+    """Normalize a conservatively extracted destination candidate."""
+    candidate = re.split(
+        r"\b(?:based|by|during|for|using|with)\b",
+        value,
+        maxsplit=1,
+        flags=re.I,
+    )[0]
+    candidate = re.sub(
+        r"^(?:the\s+)?(?:city|destination|town)\s+of\s+",
+        "",
+        candidate,
+        flags=re.I,
+    )
+    candidate = candidate.strip(" \t\r\n.,!?;:")
+    words = candidate.split()
+    while words and words[0].casefold() in DESTINATION_STOP_WORDS:
+        words.pop(0)
+    candidate = " ".join(words)
+    if not words or len(words) > 4 or any(char.isdigit() for char in candidate):
+        return ""
+    if all(word.casefold() in DESTINATION_STOP_WORDS for word in words):
+        return ""
+    return candidate
+
+
+def _append_unique_destination(
+    destinations: list[str],
+    candidate: str,
+) -> None:
+    """Append one non-empty destination without case-insensitive duplicates."""
+    normalized_candidate = _clean_destination_candidate(candidate)
+    if not normalized_candidate:
+        return
+    if normalized_candidate.casefold() in {
+        destination.casefold() for destination in destinations
+    }:
+        return
+    destinations.append(normalized_candidate)
+
+
+def _extract_destinations(text: str) -> list[str]:
+    """Extract destination names from common tourism-question phrases."""
+    destinations: list[str] = []
+    comparison_match = re.search(
+        r"\bcompare\s+(.+?)\s+(?:and|versus|vs\.?)\s+(.+?)(?=[?.!,]|$)",
+        text,
+        re.I,
+    )
+    if comparison_match:
+        _append_unique_destination(destinations, comparison_match.group(1))
+        _append_unique_destination(destinations, comparison_match.group(2))
+
+    route_match = re.search(
+        r"\bfrom\s+(.+?)\s+to\s+(.+?)(?=[?.!,]|$)",
+        text,
+        re.I,
+    )
+    if route_match:
+        _append_unique_destination(destinations, route_match.group(1))
+        _append_unique_destination(destinations, route_match.group(2))
+
+    for match in re.finditer(
+        r"\b(?:in|to|visit)\s+(.+?)(?=[?.!,]|$)",
+        text,
+        re.I,
+    ):
+        _append_unique_destination(destinations, match.group(1))
+
+    for proper_name in re.findall(
+        r"\b[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]*"
+        r"(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]*){0,3}\b",
+        text,
+    ):
+        _append_unique_destination(destinations, proper_name)
+
+    return destinations
+
+
+def _previous_user_texts(
+    state: TourismAgentState,
+    current_question: str,
+) -> list[str]:
+    """Return prior user messages from newest to oldest."""
+    previous_texts: list[str] = []
+    for message in reversed(state.get("messages", [])):
+        if not isinstance(message, HumanMessage):
+            continue
+        text = _message_text(message)
+        if text and text != current_question:
+            previous_texts.append(text)
+    return previous_texts
+
+
+def _extract_destinations_with_history(
+    state: TourismAgentState,
+    question: str,
+) -> list[str]:
+    """Extract unique destinations from the question and prior user turns."""
+    destinations: list[str] = []
+    for text in [question, *_previous_user_texts(state, question)]:
+        for candidate in _extract_destinations(text):
+            _append_unique_destination(destinations, candidate)
+    return destinations
+
+
+def _budget_level(
+    question: str,
+    user_preferences: Sequence[str],
+) -> str:
+    """Infer a broad budget level from the question and stored preferences."""
+    combined_text = " ".join([question, *user_preferences]).casefold()
+    if re.search(r"\b(?:luxury|luxurious|premium|high-end)\b", combined_text):
+        return "luxury"
+    if re.search(r"\b(?:moderate|mid-range|midrange)\b", combined_text):
+        return "moderate"
+    if re.search(
+        r"\b(?:budget-friendly|budget|affordable|low-cost|cheap)\b",
+        combined_text,
+    ):
+        return "budget"
+    return "moderate"
+
+
+def _itinerary_interests(
+    question: str,
+    user_preferences: Sequence[str],
+) -> str:
+    """Combine stored and explicitly stated non-budget interests."""
+    interests = [
+        preference
+        for preference in user_preferences
+        if preference not in {"budget", "luxury", "moderate budget"}
+    ]
+    interest_match = re.search(
+        r"\b(?:focus(?:ed)? on|interested in|interests? include)\s+"
+        r"(.+?)(?=[?.!]|$)",
+        question,
+        re.I,
+    )
+    if interest_match:
+        for value in re.split(r",|\band\b", interest_match.group(1), flags=re.I):
+            normalized_value = value.strip()
+            if normalized_value and normalized_value not in interests:
+                interests.append(normalized_value)
+    return ", ".join(interests)
+
+
+def _comparison_criteria(user_preferences: Sequence[str]) -> str:
+    """Combine stable comparison criteria with relevant preferences."""
+    criteria = DEFAULT_COMPARISON_CRITERIA.copy()
+    for preference in user_preferences:
+        if preference not in criteria:
+            criteria.append(preference)
+    return ", ".join(criteria)
+
+
+def _transport_preference(question: str) -> str:
+    """Extract a transport priority or use the balanced default."""
+    normalized_question = question.casefold()
+    preference_patterns = (
+        ("fastest", r"\b(?:fastest|quickest|fast|quick)\b"),
+        ("cheapest", r"\b(?:cheapest|cheap|affordable|low-cost)\b"),
+        ("comfortable", r"\b(?:comfortable|comfort)\b"),
+        ("balanced", r"\bbalanced\b"),
+    )
+    for preference, pattern in preference_patterns:
+        if re.search(pattern, normalized_question):
+            return preference
+    return "balanced"
+
+
+def _extract_budget_prices(
+    context: str,
+    budget_level: str,
+) -> dict[str, float]:
+    """Extract exact daily category prices for one stated budget level."""
+    normalized_context = re.sub(r"\s+", " ", context)
+    level_patterns = {
+        "budget": r"Budget",
+        "moderate": r"(?:Mid[- ]range|Moderate)",
+        "luxury": r"Luxury",
+    }
+    level_pattern = level_patterns[budget_level]
+    section_match = re.search(
+        rf"\b{level_pattern}\s+Traveler\b(.*?)(?="
+        r"\b(?:Budget|Mid[- ]range|Moderate|Luxury)\s+Traveler\b"
+        r"|\bEstimated\s+Total\b|$)",
+        normalized_context,
+        re.I,
+    )
+    if not section_match:
+        return {}
+
+    section = section_match.group(1)
+    category_patterns = {
+        "accommodation_per_day": r"\bAccommodation\s*:\s*([\d,]+(?:\.\d+)?)\s*MAD\b",
+        "food_per_day": r"\bFood\s*:\s*([\d,]+(?:\.\d+)?)\s*MAD\b",
+        "local_transport_per_day": (
+            r"\b(?:Local\s+)?Transport(?:ation)?\s*:\s*"
+            r"([\d,]+(?:\.\d+)?)\s*MAD\b"
+        ),
+        "activities_per_day": r"\bActivities\s*:\s*([\d,]+(?:\.\d+)?)\s*MAD\b",
+    }
+    prices: dict[str, float] = {}
+    for field_name, pattern in category_patterns.items():
+        price_match = re.search(pattern, section, re.I)
+        if price_match:
+            prices[field_name] = float(price_match.group(1).replace(",", ""))
+    return prices
+
+
+def _normalize_location_name(value: str) -> str:
+    """Normalize a destination or source filename for safe comparison."""
+    without_extension = re.sub(r"\.pdf$", "", value, flags=re.I)
+    return re.sub(r"[^a-z0-9]", "", without_extension.casefold())
+
+
+def _context_for_destination(context: str, destination: str) -> str:
+    """Keep retrieved source chunks associated with one destination."""
+    normalized_destination = _normalize_location_name(destination)
+    if not normalized_destination:
+        return ""
+
+    matching_chunks: list[str] = []
+    chunks = re.split(r"(?=\[Source\s+\d+:)", context)
+    for chunk in chunks:
+        source_match = re.match(
+            r"\[Source\s+\d+:\s*([^,\]]+)",
+            chunk.strip(),
+            re.I,
+        )
+        if not source_match:
+            continue
+        normalized_source = _normalize_location_name(source_match.group(1))
+        similarity = SequenceMatcher(
+            None,
+            normalized_destination,
+            normalized_source,
+        ).ratio()
+        if (
+            normalized_destination in normalized_source
+            or normalized_source in normalized_destination
+            or similarity >= 0.8
+        ):
+            matching_chunks.append(chunk.strip())
+    return "\n\n".join(matching_chunks)
+
+
+def _missing_information_result(
+    tool_name: str,
+    missing_fields: Sequence[str],
+    message: str,
+) -> dict[str, object]:
+    """Build a consistent structured result for unavailable tool inputs."""
+    return {
+        "status": "missing_information",
+        "tool": tool_name,
+        "missing_fields": list(missing_fields),
+        "message": message,
+    }
+
+
+def _specialized_result(state: TourismAgentState) -> dict[str, object] | str:
+    """Return the result associated with the selected graph path."""
+    selected_path = state.get("selected_path", state.get("intent", "general"))
+    result_field = SPECIALIZED_RESULT_FIELDS.get(selected_path)
+    if result_field is None:
+        return "No specialized tool was required for this path."
+    result = state.get(result_field)
+    return result if result else "No specialized tool result is available."
+
+
+def _format_specialized_result(state: TourismAgentState) -> str:
+    """Format the selected tool result for Gemini prompts."""
+    result = _specialized_result(state)
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
 
 
 def _format_conversation_history(
@@ -382,7 +739,13 @@ def classify_intent_node(state: TourismAgentState) -> dict:
     updates: dict[str, object] = {
         "intent": intent,
         "user_preferences": user_preferences,
+        "selected_path": intent,
+        "itinerary_result": "",
+        "comparison_result": "",
+        "budget_result": "",
+        "transport_result": "",
         "validation_result": "",
+        "validation_feedback": "",
         "revision_count": 0,
     }
     messages = state.get("messages", [])
@@ -411,13 +774,211 @@ def retrieve_node(state: TourismAgentState) -> dict:
     }
 
 
+def plan_itinerary_node(state: TourismAgentState) -> dict:
+    """Prepare a deterministic itinerary request for answer generation."""
+    question = _require_question(state)
+    destinations = _extract_destinations_with_history(state, question)
+    if not destinations:
+        return {
+            "selected_path": "itinerary",
+            "itinerary_result": _missing_information_result(
+                "build_itinerary",
+                ["destination"],
+                "A destination is required before an itinerary can be planned.",
+            ),
+        }
+
+    days = _extract_days(question) or 1
+    user_preferences = state.get("user_preferences", [])
+    try:
+        itinerary_result = build_itinerary.invoke(
+            {
+                "destination": destinations[0],
+                "days": days,
+                "interests": _itinerary_interests(
+                    question,
+                    user_preferences,
+                ),
+                "budget_level": _budget_level(
+                    question,
+                    user_preferences,
+                ),
+            }
+        )
+    except ValueError as exc:
+        itinerary_result = _missing_information_result(
+            "build_itinerary",
+            ["destination", "days"],
+            f"The itinerary inputs were invalid: {exc}",
+        )
+
+    return {
+        "selected_path": "itinerary",
+        "itinerary_result": itinerary_result,
+    }
+
+
+def compare_destinations_node(state: TourismAgentState) -> dict:
+    """Prepare a deterministic destination-comparison request."""
+    question = _require_question(state)
+    destinations = _extract_destinations_with_history(state, question)
+    if len(destinations) < 2:
+        return {
+            "selected_path": "comparison",
+            "comparison_result": _missing_information_result(
+                "compare_destinations",
+                ["destination_a", "destination_b"],
+                "Two different destinations are required for a comparison.",
+            ),
+        }
+
+    try:
+        comparison_result = compare_destinations.invoke(
+            {
+                "destination_a": destinations[0],
+                "destination_b": destinations[1],
+                "criteria": _comparison_criteria(
+                    state.get("user_preferences", [])
+                ),
+            }
+        )
+    except ValueError as exc:
+        comparison_result = _missing_information_result(
+            "compare_destinations",
+            ["destination_a", "destination_b"],
+            f"The comparison inputs were invalid: {exc}",
+        )
+
+    return {
+        "selected_path": "comparison",
+        "comparison_result": comparison_result,
+    }
+
+
+def estimate_budget_node(state: TourismAgentState) -> dict:
+    """Calculate a budget only from exact prices in retrieved context."""
+    question = _require_question(state)
+    days = _extract_days(question)
+    if days is None:
+        return {
+            "selected_path": "budget",
+            "budget_result": _missing_information_result(
+                "estimate_trip_budget",
+                ["days"],
+                "A trip duration is required before a budget can be estimated.",
+            ),
+        }
+
+    destinations = _extract_destinations(question)
+    if not destinations:
+        return {
+            "selected_path": "budget",
+            "budget_result": _missing_information_result(
+                "estimate_trip_budget",
+                ["destination"],
+                "A destination is required to select the correct retrieved prices.",
+            ),
+        }
+
+    budget_level = _budget_level(
+        question,
+        state.get("user_preferences", []),
+    )
+    destination_context = _context_for_destination(
+        state.get("context", ""),
+        destinations[0],
+    )
+    prices = _extract_budget_prices(
+        destination_context,
+        budget_level,
+    )
+    required_price_fields = (
+        "accommodation_per_day",
+        "food_per_day",
+        "local_transport_per_day",
+        "activities_per_day",
+    )
+    missing_fields = [
+        field_name
+        for field_name in required_price_fields
+        if field_name not in prices
+    ]
+    if missing_fields:
+        return {
+            "selected_path": "budget",
+            "budget_result": _missing_information_result(
+                "estimate_trip_budget",
+                missing_fields,
+                f"The retrieved context does not provide every exact "
+                f"{budget_level} daily price for {destinations[0]} needed "
+                "for this estimate.",
+            ),
+        }
+
+    try:
+        budget_result = estimate_trip_budget.invoke(
+            {
+                "days": days,
+                **prices,
+            }
+        )
+    except ValueError as exc:
+        budget_result = _missing_information_result(
+            "estimate_trip_budget",
+            required_price_fields,
+            f"The retrieved budget values were invalid: {exc}",
+        )
+
+    return {
+        "selected_path": "budget",
+        "budget_result": budget_result,
+    }
+
+
+def transport_recommendation_node(state: TourismAgentState) -> dict:
+    """Prepare a deterministic origin-to-destination transport request."""
+    question = _require_question(state)
+    destinations = _extract_destinations(question)
+    if len(destinations) < 2:
+        return {
+            "selected_path": "transport",
+            "transport_result": _missing_information_result(
+                "prepare_transport_recommendation",
+                ["origin", "destination"],
+                "Both an origin and destination are required for transport advice.",
+            ),
+        }
+
+    try:
+        transport_result = prepare_transport_recommendation.invoke(
+            {
+                "origin": destinations[0],
+                "destination": destinations[1],
+                "preference": _transport_preference(question),
+            }
+        )
+    except ValueError as exc:
+        transport_result = _missing_information_result(
+            "prepare_transport_recommendation",
+            ["origin", "destination"],
+            f"The transport inputs were invalid: {exc}",
+        )
+
+    return {
+        "selected_path": "transport",
+        "transport_result": transport_result,
+    }
+
+
 def generate_answer_node(state: TourismAgentState) -> dict:
     """Generate or revise an answer using only the retrieved context."""
     question = _require_question(state)
     documents = state.get("retrieved_documents", [])
     context = state.get("context", "").strip()
     intent = state.get("intent", "general")
+    selected_path = state.get("selected_path", intent)
     user_preferences = state.get("user_preferences", [])
+    specialized_result = _format_specialized_result(state)
     conversation_history = _format_conversation_history(
         state.get("messages", []),
         question,
@@ -439,8 +1000,12 @@ def generate_answer_node(state: TourismAgentState) -> dict:
         "itinerary": "Organize the answer by day with clear day headings.",
         "comparison": "Organize the answer by explicit comparison criteria.",
         "budget": (
-            "Separate accommodation, food, transport, and activities into "
-            "clearly labeled sections."
+            "Show accommodation, food, local transport, activities, daily "
+            "total, and trip total in clearly labeled sections."
+        ),
+        "transport": (
+            "Compare available transport information by travel time, cost, "
+            "and convenience or comfort."
         ),
     }
     structure_rule = structure_rules.get(
@@ -449,10 +1014,14 @@ def generate_answer_node(state: TourismAgentState) -> dict:
     )
     revision_instruction = ""
     if is_revision:
+        validation_feedback = state.get("validation_feedback", "").strip()
         revision_instruction = (
             "This is the only allowed revision. Improve grounding, coverage, "
             "source references, and intent-specific structure. The previous "
             f"answer was:\n{state.get('final_answer', '')}\n\n"
+            "Validation feedback:\n"
+            f"{validation_feedback or 'No detailed feedback was provided.'}"
+            "\n\n"
         )
 
     response = _invoke_gemini(
@@ -460,10 +1029,14 @@ def generate_answer_node(state: TourismAgentState) -> dict:
             SystemMessage(
                 content=(
                     "You are a Morocco tourism assistant. Answer only from "
-                    "the supplied retrieved context. Do not add unsupported "
-                    "facts. If the context does not contain the answer, say "
-                    "that the information is unavailable. Cite sources using "
-                    "the filename and page shown in the context. "
+                    "the supplied retrieved context and specialized tool "
+                    "result. Do not invent attractions, prices, routes, "
+                    "schedules, travel times, or other unsupported facts. "
+                    "Use calculated totals exactly as provided by the budget "
+                    "tool; do not calculate replacement totals. If the "
+                    "available information cannot answer the question, say "
+                    "clearly what is unavailable. Cite sources using the "
+                    "filename and page shown in the context. "
                     "Use stored preferences when relevant, but never let them "
                     "override or invent facts beyond the retrieved context. "
                     f"{structure_rule}"
@@ -472,12 +1045,15 @@ def generate_answer_node(state: TourismAgentState) -> dict:
             HumanMessage(
                 content=(
                     f"Intent: {intent}\n"
+                    f"Selected path: {selected_path}\n"
                     f"Question: {question}\n\n"
                     "Previous conversation:\n"
                     f"{conversation_history}\n\n"
                     "Stored user preferences:\n"
                     f"{', '.join(user_preferences) or 'None'}\n\n"
                     f"{revision_instruction}"
+                    "Specialized tool result:\n"
+                    f"{specialized_result}\n\n"
                     f"Retrieved context:\n{context}"
                 )
             ),
@@ -501,22 +1077,33 @@ def validate_answer_node(state: TourismAgentState) -> dict:
     context = state.get("context", "").strip()
     answer = state.get("final_answer", "").strip()
     intent = state.get("intent", "general")
+    selected_path = state.get("selected_path", intent)
+    specialized_result = _format_specialized_result(state)
 
     if not ENABLE_ANSWER_VALIDATION:
-        result: dict[str, object] = {"validation_result": "valid"}
+        result: dict[str, object] = {
+            "validation_result": "valid",
+            "validation_feedback": "",
+        }
         if answer:
             result["messages"] = [AIMessage(content=answer)]
         return result
 
     if not documents or not context or context == NO_DOCUMENTS_MESSAGE:
         result: dict[str, object] = {
-            "validation_result": "insufficient_information"
+            "validation_result": "insufficient_information",
+            "validation_feedback": (
+                "The retrieved documents did not contain usable context."
+            ),
         }
         if answer:
             result["messages"] = [AIMessage(content=answer)]
         return result
     if not answer:
-        return {"validation_result": "needs_revision"}
+        return {
+            "validation_result": "needs_revision",
+            "validation_feedback": "The generated answer was empty.",
+        }
 
     response = _invoke_gemini(
         [
@@ -528,7 +1115,11 @@ def validate_answer_node(state: TourismAgentState) -> dict:
                     "pages, and matches the requested intent structure. "
                     "Itinerary answers must be organized by day; comparison "
                     "answers by criteria; budget answers must separate "
-                    "accommodation, food, transport, and activities. Return "
+                    "accommodation, food, transport, activities, and totals; "
+                    "transport answers must compare time, cost, and "
+                    "convenience or comfort. Treat deterministic tool output "
+                    "as authoritative for structured inputs and arithmetic. "
+                    "Return "
                     "exactly one label: valid, needs_revision, or "
                     "insufficient_information. Use insufficient_information "
                     "only when the context cannot support an answer."
@@ -537,7 +1128,10 @@ def validate_answer_node(state: TourismAgentState) -> dict:
             HumanMessage(
                 content=(
                     f"Question: {question}\n"
-                    f"Intent: {intent}\n\n"
+                    f"Intent: {intent}\n"
+                    f"Selected path: {selected_path}\n\n"
+                    "Specialized tool result:\n"
+                    f"{specialized_result}\n\n"
                     f"Retrieved context:\n{context}\n\n"
                     f"Proposed answer:\n{answer}"
                 )
@@ -551,7 +1145,13 @@ def validate_answer_node(state: TourismAgentState) -> dict:
         fallback="needs_revision",
     )
     result: dict[str, object] = {
-        "validation_result": validation_result
+        "validation_result": validation_result,
+        "validation_feedback": (
+            "Revise the answer to improve question coverage, grounding, "
+            "source references, and intent-specific structure."
+            if validation_result == "needs_revision"
+            else ""
+        ),
     }
     if validation_result in {"valid", "insufficient_information"}:
         result["messages"] = [AIMessage(content=answer)]

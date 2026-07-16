@@ -5,6 +5,32 @@ from typing import Literal
 from app.graph.state import TourismAgentState
 
 
+IntentRoute = Literal[
+    "factual",
+    "general",
+    "itinerary",
+    "comparison",
+    "budget",
+    "transport",
+]
+
+
+def route_by_intent(state: TourismAgentState) -> IntentRoute:
+    """Route deterministically from the classified tourism intent."""
+    intent = state.get("intent", "general")
+    if intent == "factual":
+        return "factual"
+    if intent == "itinerary":
+        return "itinerary"
+    if intent == "comparison":
+        return "comparison"
+    if intent == "budget":
+        return "budget"
+    if intent == "transport":
+        return "transport"
+    return "general"
+
+
 def route_after_validation(
     state: TourismAgentState,
 ) -> Literal["end", "revise"]:

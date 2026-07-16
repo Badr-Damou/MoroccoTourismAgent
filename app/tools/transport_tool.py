@@ -2,6 +2,8 @@
 
 from typing import TypedDict
 
+from langchain_core.tools import tool
+
 from app.tools.validators import (
     validate_optional_string,
     validate_required_string,
@@ -25,6 +27,7 @@ class TransportRecommendationRequest(TypedDict):
     recommendation_instructions: str
 
 
+@tool
 def prepare_transport_recommendation(
     origin: str,
     destination: str,

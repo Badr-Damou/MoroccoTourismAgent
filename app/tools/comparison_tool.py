@@ -2,6 +2,8 @@
 
 from typing import TypedDict
 
+from langchain_core.tools import tool
+
 from app.tools.validators import (
     validate_optional_string,
     validate_required_string,
@@ -22,6 +24,7 @@ class ComparisonRequest(TypedDict):
     comparison_instructions: str
 
 
+@tool
 def compare_destinations(
     destination_a: str,
     destination_b: str,
