@@ -1,0 +1,33 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify_intent(classify_intent)
+	retrieve(retrieve)
+	plan_itinerary(plan_itinerary)
+	compare_destinations(compare_destinations)
+	estimate_budget(estimate_budget)
+	transport_recommendation(transport_recommendation)
+	generate_answer(generate_answer)
+	validate_answer(validate_answer)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify_intent;
+	classify_intent --> retrieve;
+	compare_destinations --> generate_answer;
+	estimate_budget --> generate_answer;
+	generate_answer --> validate_answer;
+	plan_itinerary --> generate_answer;
+	retrieve -. &nbsp;comparison&nbsp; .-> compare_destinations;
+	retrieve -. &nbsp;budget&nbsp; .-> estimate_budget;
+	retrieve -. &nbsp;factual&nbsp; .-> generate_answer;
+	retrieve -. &nbsp;itinerary&nbsp; .-> plan_itinerary;
+	retrieve -. &nbsp;transport&nbsp; .-> transport_recommendation;
+	transport_recommendation --> generate_answer;
+	validate_answer -. &nbsp;end&nbsp; .-> __end__;
+	validate_answer -. &nbsp;revise&nbsp; .-> generate_answer;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
