@@ -1,0 +1,11 @@
+{
+  "total_questions": 20,
+  "successful_questions": 20,
+  "failed_questions": 0,
+  "average_response_time_seconds": 7.486,
+  "average_answer_quality_score": 3.65,
+  "average_document_relevance_score": 4.8,
+  "hallucination_count": 13,
+  "simple_question_success_rate": 1.0,
+  "complex_question_success_rate": 1.0
+}

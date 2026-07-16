@@ -171,6 +171,71 @@ and simple travel preferences within one `thread_id`, then confirms that a
 different thread cannot access them. Memory lasts for the lifetime of the
 compiled graph instance and is not persisted across process restarts.
 
+## Streamlit interface
+
+Install Streamlit if it is not already available in the project environment:
+
+```powershell
+python -m pip install streamlit
+```
+
+Before launching the interface, make sure:
+
+- Ollama is running.
+- The `qwen2.5:3b` model is installed.
+- ChromaDB has been indexed from the tourism PDFs.
+- The root `.env` file is configured.
+
+Install the local Ollama model and build the document index when needed:
+
+```powershell
+ollama pull qwen2.5:3b
+python -m scripts.index_documents
+```
+
+Launch the application from the project root:
+
+```powershell
+streamlit run streamlit_app.py
+```
+
+The interface reuses the existing compiled LangGraph workflow. Each browser
+session receives its own conversation thread, visible chat history, routing and
+validation details, specialized tool output, and deduplicated source previews.
+
+## Run the formal evaluation
+
+Run two pending questions first to verify the evaluation setup:
+
+```powershell
+python -m scripts.run_evaluation --limit 2
+```
+
+Run or resume the complete 20-question evaluation:
+
+```powershell
+python -m scripts.run_evaluation
+```
+
+Successful questions already stored in the JSON results are skipped, while
+failed questions are retried. To discard the previous evaluation exports and
+start again from the first question, use:
+
+```powershell
+python -m scripts.run_evaluation --reset
+```
+
+Progress is saved after every question in:
+
+- `artifacts/evaluation_results.csv`
+- `artifacts/evaluation_results.json`
+- `artifacts/evaluation_summary.json`
+
+Scoring is deterministic and does not call a separate evaluator model. The
+runner records answer quality, document relevance, conservative hallucination
+detection, response time, routing details, validation status, and retrieved
+sources for every question.
+
 ## Development checks
 
 Compile the application and scripts without making an API request:

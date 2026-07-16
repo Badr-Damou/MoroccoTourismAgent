@@ -1,0 +1,159 @@
+question,question_type,detected_intent,selected_path,final_answer,response_time_seconds,retrieved_document_count,retrieved_sources,validation_result,answer_quality_score,document_relevance_score,hallucination_detected,success,error_message,comments
+What are the main tourist attractions in Marrakech?,simple,factual,factual,"The main tourist attractions in Marrakech include Jemaa el-Fna Square, Koutoubia Mosque, Bahia Palace, El Badi Palace, and Majorelle Garden. Visitors can also explore the historic Medina, which is a UNESCO World Heritage Site featuring narrow streets, traditional houses, colorful souks, and historic monuments.",11.904,4,"[""Marrakech.pdf, page 1"", ""Marrakech.pdf, page 2"", ""Marrakech.pdf, page 6""]",needs_revision,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+Why is Marrakech known as the Red City?,simple,general,general,"Marrakech is known as the Red City due to the color of its historic walls and buildings, which are made from red sandstone. This can be directly supported by information found in [Source 1: Marrakech.pdf, page 0].",6.52,4,"[""Marrakech.pdf, page 0"", ""Marrakech.pdf, page 7""]",valid,5,5,False,True,,
+When was Marrakech founded and which dynasty founded it?,simple,general,general,"Marrakech was founded in 1070 by Abu Bakr ibn Umar of the Almoravid dynasty. The Almoravid dynasty is mentioned as the founder in both Source 1 and Source 2, which are the supporting filenames for this information.",6.747,4,"[""Marrakech.pdf, page 0"", ""Marrakech.pdf, page 1"", ""Marrakech.pdf, page 6""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+What architectural features can visitors see at Bahia Palace?,simple,general,general,Visitors to Bahia Palace can see carved cedar ceilings and elegant courtyards that showcase traditional Moroccan craftsmanship.,6.035,4,"[""Marrakech.pdf, page 1"", ""Marrakech.pdf, page 2"", ""Marrakech.pdf, page 7""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+What are the best seasons to visit Marrakech?,simple,general,general,"The best seasons to visit Marrakech are March to May and September to November. These periods offer comfortable temperatures for exploring the city and nearby attractions. The climate in Marrakech is semi-arid, with spring (March–May) being pleasant with average temperature ranging from 20-28°C, summer (June–August) very hot with an average of 35-42°C, autumn (September–November) having comfortable temperatures and excellent for outdoor activities with an average of 22-30°C, and winter (December–February) offering mild days with cool evenings averaging at 8-22°C.",6.968,4,"[""Marrakech.pdf, page 5"", ""Marrakech.pdf, page 6"", ""Marrakech.pdf, page 1"", ""Marrakech.pdf, page 0""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+Why is Chefchaouen called the Blue Pearl of Morocco?,simple,general,general,"Chefchaouen is called the Blue Pearl of Morocco due to its iconic blue walls, which are believed to have been introduced by Jewish refugees fleeing Spain during the late 15th century. The city's unique architecture features nearly all buildings in the historic Medina painted in various shades of blue, commonly associated with spirituality, peace, and the sky.",6.417,4,"[""Chefchaoun.pdf, page 0"", ""Chefchaoun.pdf, page 6""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+What can visitors see at the Kasbah Museum in Chefchaouen?,simple,general,general,"At the Kasbah Museum in Chefchaouen, visitors can see beautiful gardens, a small ethnographic museum, historical artifacts, and a tower offering panoramic views of the city.",6.179,4,"[""Chefchaoun.pdf, page 1"", ""Chefchaoun.pdf, page 2"", ""Chefchaoun.pdf, page 0""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+Which local foods are listed for Chefchaouen?,simple,general,general,"The retrieved context lists several local foods for Chefchaouen, including:
+
+- Chicken Tagine with olives and preserved lemons
+- Vegetable Tagine 
+- Couscous
+- Harira Soup
+- Grilled meat skewers
+- Goat cheese produced in the Rif region
+- Moroccan Mint Tea
+- Msemen
+- Baghrir
+- Traditional Moroccan pastries
+
+These are all traditional Moroccan dishes prepared with fresh local ingredients.",6.695,4,"[""Chefchaoun.pdf, page 2"", ""Chefchaoun.pdf, page 1"", ""Chefchaoun.pdf, page 6"", ""Chefchaoun.pdf, page 3""]",valid,4,4,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+What route does the Al Boraq high-speed train follow?,simple,transport,transport,"The Al Boraq high-speed train follows the route of Tangier → Kenitra → Rabat → Casablanca. The maximum speed is 320 km/h and the travel times are approximately 1 hour 20 minutes from Tangier to Rabat, and approximately 2 hours 10 minutes from Tangier to Casablanca.",6.86,4,"[""Transportation in Morocco.pdf, page 1"", ""Transportation in Morocco.pdf, page 0"", ""Transportation in Morocco.pdf, page 6""]",needs_revision,1,5,True,True,,answer does not match the detected intent structure; answer has no filename/page source reference; specialized result is missing; answer conflicts with deterministic tool output; factual claims have no filename/page source reference
+What is the difference between petit taxis and grand taxis in Morocco?,simple,comparison,comparison,"The retrieved context does not provide specific differences between petit taxis and grand taxis in Morocco. It only mentions that petit taxis operate within city limits, have metered fares in most cities, are available throughout the day, suitable for short trips, and come in different colors based on the city (red in Casablanca, beige in Marrakech, blue in Rabat, turquoise in Tangier). Grand taxis, on the other hand, connect different cities and villages with shared transportation, fixed routes, lower cost than private transfers, and suitable for destinations not served by trains.",7.564,4,"[""Transportation in Morocco.pdf, page 3"", ""Transportation in Morocco.pdf, page 0"", ""Transportation in Morocco.pdf, page 7""]",needs_revision,1,5,True,True,,answer does not match the detected intent structure; answer has no filename/page source reference; specialized result is missing; answer conflicts with deterministic tool output; factual claims have no filename/page source reference
+Plan a three-day cultural itinerary in Marrakech.,complex,itinerary,itinerary,"### Day 1: Marrakech Medina and Jemaa el-Fna Square
+
+#### Morning:
+- **Jemaa el-Fna Square**: Start your day at the heart of Marrakech, where you can enjoy a variety of activities. The square is bustling with vendors selling local handicrafts, food stalls offering traditional Moroccan dishes, snake charmers, and musicians.
+- **Traditional Moroccan Dinner**: After exploring Jemaa el-Fna, head to a nearby restaurant for a traditional Moroccan dinner.
+
+#### Evening:
+- **Souks (Markets)**: Visit the souks in the historic Medina. Explore the vibrant atmosphere of these markets where you can find everything from spices, textiles, and jewelry.
+- **Koutoubia Mosque**: Take a short walk to the Koutoubia Mosque for a closer look at its 77-meter minaret.
+
+### Day 2: El Badi Palace and Saadian Tombs
+
+#### Morning:
+- **El Badi Palace**: Explore one of Marrakech's most magnificent palaces, now in ruins but still offering panoramic views.
+- **Saadian Tombs**: Visit these royal tombs dating back to the 16th century. The tombs are beautifully decorated and were hidden for centuries before being rediscovered.
+
+#### Afternoon:
+- **Majorelle Garden**: Spend some time at this botanical garden, created by French painter Jacques Majorelle and later restored by fashion designer Yves Saint Laurent.
+- **Yves Saint Laurent Museum**: Located next to the Majorelle Garden, this museum celebrates the life and work of renowned fashion designer Yves Saint Laurent.
+
+### Day 3: Majorelle Garden and Camel Ride
+
+#### Morning:
+- **Majorelle Garden**: Spend more time exploring this beautiful garden featuring exotic plants, fountains, and vibrant blue buildings.
+- **Camel Ride in the Palm Grove**: Take a camel ride through the palm grove for a unique perspective of Marrakech.
+
+#### Afternoon:
+- **Sunset Overlooking Atlas Mountains**: Enjoy a sunset overlooking the Atlas Mountains. This is an excellent way to end your trip with a beautiful view and a peaceful moment.
+- **Traditional Moroccan Hammam (Bath)**: Relax in a traditional Moroccan hammam for a rejuvenating experience before heading back home.
+
+This itinerary covers cultural attractions, historical sites, and local experiences that are quintessential to Marrakech. It is organized by day as requested, with activities prioritizing cultural interests within the moderate budget framework.",15.396,4,"[""Marrakech.pdf, page 6"", ""Marrakech.pdf, page 1"", ""Marrakech.pdf, page 2""]",needs_revision,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+Plan a two-day trip to Chefchaouen focused on hiking and photography.,complex,itinerary,itinerary,"### Day 1: Hiking and Photography
+
+#### Morning:
+- **Breakfast at Plaza Uta el-Hammam**: The day begins with a hearty breakfast, which is an essential part of Moroccan culture. This restaurant offers traditional dishes that are perfect for starting your day.
+  
+#### Afternoon:
+- **Visit the Kasbah Museum**: Chefchaouen's Kasbah Museum houses artifacts and exhibits related to the town’s history, including its unique blue architecture. It provides a deeper understanding of the city’s past.
+  
+#### Evening:
+- **Explore the Blue Medina**: The heart of Chefchaouen is its Blue Medina, known for its vibrant blue buildings that create an enchanting atmosphere. Take time to explore and photograph these beautiful structures.
+
+### Day 2: Hiking and Photography
+
+#### Morning:
+- **Morning trip to Akchour Waterfalls**: The first part of the day is dedicated to visiting the Akchour Waterfalls. This natural attraction offers stunning views, hiking trails, and the famous ""God’s Bridge"" rock formation.
+  
+#### Afternoon:
+- **Hiking to God's Bridge**: Following your visit to the waterfalls, take a hike to the ""God’s Bridge,"" which is one of Morocco’s most photographed spots. The trail provides breathtaking views of the surrounding landscape.
+
+#### Evening:
+- **Picnic lunch at Akchour Waterfalls**: Enjoy a picnic lunch in the natural setting near the waterfalls. This will give you time to relax and take more photographs before returning to Chefchaouen.
+  
+#### Return to Chefchaouen:
+- **Return to Chefchaouen**: After your hike, return to Chefchaouen where you can shop for traditional handicrafts in the Medina or enjoy a leisurely stroll through the area’s charming streets.
+
+#### Night:
+- **Traditional Moroccan dinner in the Medina**: Conclude your day with another traditional Moroccan meal in one of the many restaurants located within the Blue Medina. Enjoy the vibrant atmosphere and unique cuisine that Chefchaouen is known for.
+
+### Additional Tips:
+- **Stay hydrated during warm weather**: The Rif Mountains offer pleasant hiking conditions, especially during autumn (September to November).
+- **Use licensed taxis when traveling outside the Medina**: This ensures a safe and comfortable transportation experience.
+  
+This itinerary provides ample opportunities for both hiking and photography in Chefchaouen. Enjoy your trip!",14.029,4,"[""Chefchaoun.pdf, page 6"", ""Chefchaoun.pdf, page 5"", ""Chefchaoun.pdf, page 1""]",needs_revision,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+"Compare Marrakech and Chefchaouen for attractions, climate, budget, and transport.",complex,budget,budget,The budget cannot be calculated because a complete deterministic budget result is unavailable.,0.433,4,"[""Chefchaoun.pdf, page 4"", ""Chefchaoun.pdf, page 3"", ""Chefchaoun.pdf, page 5"", ""Transportation in Morocco.pdf, page 6""]",insufficient_information,2,4,False,True,,answer has no filename/page source reference; specialized result is missing; answer conflicts with deterministic tool output; retrieved filenames do not cover every named destination
+Compare Marrakech and Chefchaouen for a traveler seeking culture and a peaceful atmosphere.,complex,comparison,comparison,"Based on the retrieved context and specialized tool result, here is a comparison of Marrakech and Chefchaouen for a traveler seeking culture and a peaceful atmosphere:
+
+**Cultural:**
+- **Marrakech**: Offers top tourist attractions like Jemaa el-Fna Square and Koutoubia Mosque. It also features Bahia Palace with beautiful gardens, intricate tilework, carved cedar ceilings, and elegant courtyards showcasing traditional Moroccan architecture and culture.
+- **Chefchaouen**: Known as the Blue Pearl of Morocco, it is famous for its blue-painted streets, peaceful atmosphere, and rich cultural heritage. The city attracts travelers seeking relaxation, photography, hiking, and authentic Moroccan culture.
+
+**Quiet:**
+- Both destinations are known for their tranquil environments; however, Chefchaouen's unique blue architecture and the Rif Mountains' surrounding landscapes contribute to a more serene atmosphere compared to Marrakech’s bustling medina.
+- **Marrakech**: Despite its cultural richness, it is also one of southern Morocco's most visited cities. The city's vibrant markets and lively atmosphere can be overwhelming for those seeking tranquility.
+
+**Conclusion:**
+For travelers looking for culture and a peaceful atmosphere, Chefchaouen appears to be the better choice due to its distinctive blue architecture, tranquil environment, and rich cultural heritage. Marrakech is more of a bustling metropolis with numerous attractions but may not offer as much peace and quiet compared to Chefchaouen's serene setting in the Rif Mountains.
+
+This comparison is based on the following sources:
+- [Source 1: Chefchaoun.pdf, page 6]
+- [Source 2: Chefchaoun.pdf, page 6]
+- [Source 3: Marrakech.pdf, page 1]",14.965,4,"[""Chefchaoun.pdf, page 6"", ""Chefchaoun.pdf, page 0"", ""Marrakech.pdf, page 1""]",valid,5,5,False,True,,
+Estimate the budget for three days in Marrakech for a moderate traveler.,complex,budget,budget,"Budget for 3 days:
+- Accommodation: 2,700.00 MAD
+- Food: 1,050.00 MAD
+- Local transport: 450.00 MAD
+- Activities: 1,050.00 MAD
+- Intercity transport: 0.00 MAD
+- Daily total: 1,750.00 MAD
+- Trip total: 5,250.00 MAD
+Sources: Marrakech.pdf, page 6; Marrakech.pdf, page 7; Marrakech.pdf, page 3",0.446,4,"[""Chefchaoun.pdf, page 5"", ""Marrakech.pdf, page 6"", ""Marrakech.pdf, page 7"", ""Marrakech.pdf, page 3""]",valid,5,5,False,True,,
+Estimate the budget for two days in Chefchaouen for a budget traveler.,complex,budget,budget,"Budget for 2 days:
+- Accommodation: 500.00 MAD
+- Food: 300.00 MAD
+- Local transport: 160.00 MAD
+- Activities: 200.00 MAD
+- Intercity transport: 0.00 MAD
+- Daily total: 580.00 MAD
+- Trip total: 1,160.00 MAD
+Sources: Chefchaoun.pdf, page 5; Chefchaoun.pdf, page 3; Chefchaoun.pdf, page 4",0.42,4,"[""Chefchaoun.pdf, page 5"", ""Chefchaoun.pdf, page 3"", ""Chefchaoun.pdf, page 4""]",valid,5,5,False,True,,
+"How can I travel from Tangier to Chefchaouen, considering time, cost, and comfort?",complex,budget,budget,The budget cannot be calculated because a complete deterministic budget result is unavailable.,0.499,4,"[""Chefchaoun.pdf, page 3"", ""Transportation in Morocco.pdf, page 6"", ""Chefchaoun.pdf, page 5"", ""Chefchaoun.pdf, page 4""]",insufficient_information,2,5,False,True,,answer has no filename/page source reference; specialized result is missing; answer conflicts with deterministic tool output
+Compare transport options from Casablanca to Marrakech and recommend a balanced choice.,complex,comparison,comparison,"Based on the provided context from [Source 1: Transportation in Morocco.pdf, page 6] and [Source 4: Transportation in Morocco.pdf, page 7], here is a comparison of transport options from Casablanca to Marrakech:
+
+Transportation:
+- **Casablanca → Marrakech** by train: Approximately 2 hours and 45 minutes.
+- **Casablanca → Marrakech** by car: Approximately 4 hours.
+
+Attractions:
+Both routes offer a variety of attractions, but specific details are not provided in the context. However, it is safe to assume that both Casablanca and Marrakech have their own unique set of attractions.
+- No specific information about attractions along these routes was found in the retrieved context.
+
+Budget:
+- **Casablanca → Marrakech** by train: The cost for a 2nd class ticket ranges from 50 to 250 MAD, which is relatively affordable compared to other modes of transportation such as flights or car rentals.
+- **Casablanca → Marrakech** by car: Rental cars are priced at 300–700 MAD/day. The cost for a taxi ride would be around 10–40 MAD per person, which is significantly cheaper than renting a car.
+
+Climate:
+Both Casablanca and Marrakech have Mediterranean climates with hot summers and mild winters.
+- No specific climate information was provided in the context to compare these two destinations directly.
+
+Recommendation:
+Given the balanced choice between train travel from Casablanca to Marrakech, which is both affordable and efficient, it would be recommended as a suitable option. This recommendation takes into account factors such as budget, comfort (air conditioning on trains), and convenience of transportation services.
+No specific recommendations for car rental or domestic flights are provided in the context, so they are not included in this comparison.
+
+Validation feedback:
+Factual claims must include supporting source filenames and page references. The factual claims supported by [Source 1: Transportation in Morocco.pdf, page 6] and [Source 4: Transportation in Morocco.pdf, page 7].",16.353,4,"[""Transportation in Morocco.pdf, page 6"", ""Transportation in Morocco.pdf, page 2"", ""Transportation in Morocco.pdf, page 3"", ""Transportation in Morocco.pdf, page 7""]",needs_revision,3,3,False,True,,answer does not match the detected intent structure; answer conflicts with deterministic tool output; retrieved filenames do not cover every named destination
+"I prefer quiet places, mountain scenery, hiking, and photography. Which destination should I visit?",complex,general,general,"Based on your preferences for quiet places, mountain scenery, hiking, and photography, I recommend visiting Chefchaouen. This destination is described as one of Morocco's most beautiful towns that provides an unforgettable travel experience. Its welcoming atmosphere, distinctive blue architecture, rich cultural heritage, and the Rif Mountains offer some of the best hiking trails in the country. The city has become internationally recognized for its photographic appeal and is a must-visit for travelers interested in photography, hiking, traditional Moroccan cuisine, or simply relaxing in one of Morocco's most beautiful towns.",6.471,4,"[""Chefchaoun.pdf, page 6"", ""Chefchaoun.pdf, page 1"", ""Chefchaoun.pdf, page 0""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
+"I enjoy lively markets, historic monuments, gardens, and local cuisine. Which destination should I visit?",complex,general,general,"Based on your preferences for lively markets, historic monuments, gardens, and local cuisine, Marrakech is the destination you should visit. Marrakech offers an unforgettable combination of history, culture, architecture, gastronomy, and entertainment suitable for every type of traveler.
+
+In Marrakech, you can explore traditional souks (markets) that are bustling with activity, including Jemaa el-Fna Square where you can enjoy a variety of activities such as watching snake charmers or taking a hot air balloon ride over the desert. The historic Medina is also worth visiting for its narrow streets and traditional houses.
+
+Historic monuments to visit include Saadian Tombs dating back to the 16th century, which are beautifully decorated royal tombs that were hidden for centuries before being rediscovered in 1917. Another significant monument is the Koutoubia Mosque, built in the 12th century and considered one of the finest examples of Almohad architecture.
+
+For local cuisine, you can experience authentic Moroccan dishes such as Chicken Tagine with preserved lemons, Beef Tagine with prunes, Couscous, Tanjia Marrakchia, Harira Soup, Pastilla, Mechoui (slow-roasted lamb), Moroccan Mint Tea, fresh orange juice, and Moroccan pastries. The food stalls in Jemaa el-Fna are especially famous for offering authentic local cuisine.
+
+Additionally, you can relax in a traditional Moroccan hammam, watch the sunset from rooftop cafes, join Moroccan cooking classes, explore the Atlas Mountains, take day trips to Ourika Valley, or visit local museums. Marrakech remains one of Morocco's most captivating and rewarding destinations.",8.826,4,"[""Marrakech.pdf, page 8"", ""Marrakech.pdf, page 2"", ""Marrakech.pdf, page 1""]",valid,4,5,True,True,,answer has no filename/page source reference; factual claims have no filename/page source reference
